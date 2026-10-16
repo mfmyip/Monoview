@@ -39,6 +39,8 @@ public sealed partial class MainWindow : Window
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
         AddAccelerator((VirtualKey)189, VirtualKeyModifiers.Control, Accel_ZoomOut);
         AddAccelerator((VirtualKey)188, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = OpenSettingsAsync(); }); // Ctrl+,
+        AddAccelerator(VirtualKey.G, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; FocusPageBox(); });
+        AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
 
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
         Closed += (_, _) =>
@@ -361,12 +363,11 @@ public sealed partial class MainWindow : Window
         else Close();
     }
 
-    private void Accel_NextTab(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e) => CycleTab(e, +1);
-    private void Accel_PreviousTab(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e) => CycleTab(e, -1);
+    private void Accel_NextTab(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e) { e.Handled = true; CycleTab(+1); }
+    private void Accel_PreviousTab(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e) { e.Handled = true; CycleTab(-1); }
 
-    private void CycleTab(KeyboardAcceleratorInvokedEventArgs e, int step)
+    private void CycleTab(int step)
     {
-        e.Handled = true;
         int n = Tabs.TabItems.Count;
         if (n > 1) Tabs.SelectedIndex = ((Tabs.SelectedIndex + step) % n + n) % n;
     }
@@ -374,6 +375,11 @@ public sealed partial class MainWindow : Window
     private void Accel_Find(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e)
     {
         e.Handled = true;
+        FocusSearch();
+    }
+
+    private void FocusSearch()
+    {
         if (CurrentView is null) return;
         SearchBox.Focus(FocusState.Keyboard);
         SearchBox.SelectAll();
@@ -436,21 +442,85 @@ public sealed partial class MainWindow : Window
 
     private void Settings_Click(object sender, RoutedEventArgs e) => _ = OpenSettingsAsync();
 
-    private bool _settingsOpen;
+    private bool _dialogOpen;
 
-    private async Task OpenSettingsAsync()
+    private Task OpenSettingsAsync() => RunDialogAsync(SettingsDialog.ShowAsync);
+
+    /// <summary>Shows one of our dialogs; WinUI allows only one ContentDialog at a time.</summary>
+    private async Task RunDialogAsync(Func<XamlRoot, Task> show)
     {
-        if (_settingsOpen || Root.XamlRoot is null) return; // only one ContentDialog can be open at a time
-        _settingsOpen = true;
+        if (_dialogOpen || Root.XamlRoot is null) return;
+        _dialogOpen = true;
         try
         {
-            await SettingsDialog.ShowAsync(Root.XamlRoot);
+            await show(Root.XamlRoot);
         }
         finally
         {
-            _settingsOpen = false;
+            _dialogOpen = false;
         }
     }
+
+    // ---------------- ☰ menu ----------------
+
+    private void MainMenu_Opening(object? sender, object e)
+    {
+        var view = CurrentView;
+        bool hasDoc = view is not null;
+        foreach (var item in new MenuFlyoutItemBase[] { CloseTabItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu })
+            item.IsEnabled = hasDoc;
+        CopyItem.IsEnabled = view?.Viewer.HasSelection ?? false;
+        SidebarItem.Text = view?.IsSidebarVisible == false ? "Show sidebar" : "Hide sidebar";
+
+        RecentSubMenu.Items.Clear();
+        foreach (var path in RecentFiles.Items)
+        {
+            var item = new MenuFlyoutItem { Text = Path.GetFileName(path), Tag = path };
+            ToolTipService.SetToolTip(item, path);
+            item.Click += (s, args) => _ = OpenFileAsync((string)((MenuFlyoutItem)s).Tag);
+            RecentSubMenu.Items.Add(item);
+        }
+        if (RecentSubMenu.Items.Count == 0)
+            RecentSubMenu.Items.Add(new MenuFlyoutItem { Text = "No recent files", IsEnabled = false });
+    }
+
+    private void CloseTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (Tabs.SelectedItem is TabViewItem tab) CloseTab(tab);
+    }
+
+    private void ShowInExplorer_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentView is { } view && File.Exists(view.Document.Path))
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{view.Document.Path}\"") { UseShellExecute = false });
+    }
+
+    private void CopyPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentView is not { } view) return;
+        var package = new DataPackage();
+        package.SetText(view.Document.Path);
+        Clipboard.SetContent(package);
+    }
+
+    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void GoToPage_Click(object sender, RoutedEventArgs e) => FocusPageBox();
+
+    private void FocusPageBox()
+    {
+        if (CurrentView is null) return;
+        PageBox.Focus(FocusState.Keyboard);
+        PageBox.SelectAll();
+    }
+
+    private void NextTab_Click(object sender, RoutedEventArgs e) => CycleTab(+1);
+    private void PreviousTab_Click(object sender, RoutedEventArgs e) => CycleTab(-1);
+    private void Find_Click(object sender, RoutedEventArgs e) => FocusSearch();
+    private void Copy_Click(object sender, RoutedEventArgs e) => _ = CurrentView?.Viewer.CopySelectionAsync();
+    private void SelectAll_Click(object sender, RoutedEventArgs e) => _ = CurrentView?.Viewer.SelectAllAsync();
+    private void Shortcuts_Click(object sender, RoutedEventArgs e) => _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync);
+    private void About_Click(object sender, RoutedEventArgs e) => _ = RunDialogAsync(HelpDialogs.ShowAboutAsync);
 
     private void Unregister_Click(object sender, RoutedEventArgs e)
     {
@@ -506,6 +576,13 @@ public sealed partial class MainWindow : Window
                 }
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
                 if (args.Contains("--settings-dialog")) { _ = OpenSettingsAsync(); await Task.Delay(800); }
+                if (Arg("--dialog") is { } dialog)
+                {
+                    var shown = RunDialogAsync(dialog == "about" ? HelpDialogs.ShowAboutAsync : HelpDialogs.ShowShortcutsAsync);
+                    await Task.WhenAny(shown, Task.Delay(800));
+                    if (shown.IsFaulted) Console.Out.WriteLine($"DIALOG_ERROR {shown.Exception!.InnerException}");
+                }
+                if (args.Contains("--menu")) { MainMenu.ShowAt(MenuButton); await Task.Delay(500); }
                 if (args.Contains("--autoscroll-test"))
                 {
                     // Anchor mid-page with the pointer 150 px below it; the icon stays up for the screenshot.
@@ -541,8 +618,18 @@ public sealed partial class MainWindow : Window
 
     private async Task SaveScreenshotAsync(string path)
     {
+        await SaveElementAsync(Root, path);
+        // Menus and dialogs live in popups outside Root; save each open one next to the main shot.
+        int n = 0;
+        foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot))
+            if (popup.Child is { } child)
+                await SaveElementAsync(child, Path.ChangeExtension(path, $".popup{n++}.png"));
+    }
+
+    private static async Task SaveElementAsync(UIElement element, string path)
+    {
         var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
-        await rtb.RenderAsync(Root);
+        await rtb.RenderAsync(element);
         var pixels = await rtb.GetPixelsAsync();
         using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
         var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);

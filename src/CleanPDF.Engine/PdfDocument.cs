@@ -27,6 +27,9 @@ public sealed class PdfDocument : IDisposable
     private readonly LruCache<int, PageText> _texts = new(TextCacheSize);
     private volatile bool _disposed;
 
+    /// <summary>Version of the bundled PDFium build (the PDFiumCore package version).</summary>
+    public static string PdfiumVersion => typeof(fpdfview).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+
     public string Path { get; }
     public int PageCount => _pageSizes.Length;
     public IReadOnlyList<PageSize> PageSizes => _pageSizes;

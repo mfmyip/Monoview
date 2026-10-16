@@ -60,6 +60,79 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <!-- ☰ menu: every command as text, with its shortcut, for when you don't know the icon or the key. -->
+                <Button x:Name="MenuButton" Style="{StaticResource ToolButton}"
+                        ToolTipService.ToolTip="Menu" AutomationProperties.Name="Menu">
+                    <FontIcon Glyph="&#xE700;" FontSize="16" />
+                    <Button.Flyout>
+                        <MenuFlyout x:Name="MainMenu" Placement="BottomEdgeAlignedLeft" Opening="MainMenu_Opening">
+                            <MenuFlyoutSubItem Text="File">
+                                <MenuFlyoutItem Text="Open…" Click="Open_Click" KeyboardAcceleratorTextOverride="Ctrl+O">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="Open recent">
+                                    <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutSubItem.Icon>
+                                </MenuFlyoutSubItem>
+                                <MenuFlyoutItem x:Name="CloseTabItem" Text="Close tab" Click="CloseTab_Click" KeyboardAcceleratorTextOverride="Ctrl+W" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="ShowInExplorerItem" Text="Show in File Explorer" Click="ShowInExplorer_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEC50;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="CopyPathItem" Text="Copy file path" Click="CopyPath_Click" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="RegisterButton" Text="Add CleanPDF to “Open with”…" Click="Register_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7AC;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="UnregisterButton" Text="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
+                                <MenuFlyoutItem Text="Settings…" Click="Settings_Click" KeyboardAcceleratorTextOverride="Ctrl+,">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Exit" Click="Exit_Click" KeyboardAcceleratorTextOverride="Alt+F4" />
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem x:Name="ViewMenu" Text="View">
+                                <MenuFlyoutItem x:Name="SidebarItem" Text="Hide sidebar" Click="SidebarButton_Click" KeyboardAcceleratorTextOverride="Ctrl+B" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Zoom in" Click="ZoomIn_Click" KeyboardAcceleratorTextOverride="Ctrl++">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A3;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Zoom out" Click="ZoomOut_Click" KeyboardAcceleratorTextOverride="Ctrl+-">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE71F;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Actual size" Click="ActualSize_Click" KeyboardAcceleratorTextOverride="Ctrl+0" />
+                                <MenuFlyoutItem Text="Fit width" Click="FitWidth_Click" KeyboardAcceleratorTextOverride="Ctrl+8" />
+                                <MenuFlyoutItem Text="Fit page" Click="FitPage_Click" KeyboardAcceleratorTextOverride="Ctrl+9" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Go to page…" Click="GoToPage_Click" KeyboardAcceleratorTextOverride="Ctrl+G" />
+                                <MenuFlyoutItem Text="Next tab" Click="NextTab_Click" KeyboardAcceleratorTextOverride="Ctrl+Tab" />
+                                <MenuFlyoutItem Text="Previous tab" Click="PreviousTab_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+Tab" />
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem x:Name="FindMenu" Text="Find">
+                                <MenuFlyoutItem Text="Find…" Click="Find_Click" KeyboardAcceleratorTextOverride="Ctrl+F">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE721;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Find next" Click="NextHit_Click" KeyboardAcceleratorTextOverride="F3" />
+                                <MenuFlyoutItem Text="Find previous" Click="PrevHit_Click" KeyboardAcceleratorTextOverride="Shift+F3" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="CopyItem" Text="Copy selected text" Click="Copy_Click" KeyboardAcceleratorTextOverride="Ctrl+C">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Select all text" Click="SelectAll_Click" KeyboardAcceleratorTextOverride="Ctrl+A" />
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem Text="Help">
+                                <MenuFlyoutItem Text="Keyboard shortcuts" Click="Shortcuts_Click" KeyboardAcceleratorTextOverride="F1">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE765;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="About CleanPDF" Click="About_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyoutSubItem>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <Button x:Name="SidebarButton" Style="{StaticResource ToolButton}" Click="SidebarButton_Click"
                         ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
                     <!-- Panel icon like Claude's: rounded window outline with the sidebar divider on the left. -->
@@ -133,25 +206,6 @@
                         <FontIcon Glyph="&#xE70D;" FontSize="12" />
                     </Button>
                 </StackPanel>
-                <Button Style="{StaticResource ToolButton}" ToolTipService.ToolTip="More" AutomationProperties.Name="More">
-                    <FontIcon Glyph="&#xE712;" FontSize="16" />
-                    <Button.Flyout>
-                        <MenuFlyout Placement="BottomEdgeAlignedRight">
-                            <MenuFlyoutItem x:Name="RegisterButton" Text="Add CleanPDF to “Open with”…" Click="Register_Click">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE7AC;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="UnregisterButton" Text="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Settings" Click="Settings_Click" KeyboardAcceleratorTextOverride="Ctrl+,">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE713;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
             </StackPanel>
         </Grid>
 
