@@ -488,3 +488,6 @@ publish/
 
 # '*.app' above targets macOS bundles; it also matches this project folder
 !/src/CleanPDF.App/
+
+# Shareable build
+CleanPDF-*.zip

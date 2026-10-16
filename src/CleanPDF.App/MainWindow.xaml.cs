@@ -44,19 +44,11 @@ public sealed partial class MainWindow : Window
         UpdateToolbar();
     }
 
-    /// <summary>The start page (recent files) is only built when it's needed, to keep launch-with-a-file fast.</summary>
+    /// <summary>Shows the start page (open button and recent files) when no document is open.</summary>
     public void ShowStartPage(bool show)
     {
-        if (show)
-        {
-            if (StartPage is null) Root.FindName(nameof(StartPage));
-            StartPage!.Visibility = Visibility.Visible;
-            RefreshStartPage();
-        }
-        else if (StartPage is not null)
-        {
-            StartPage.Visibility = Visibility.Collapsed;
-        }
+        StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show) RefreshStartPage();
     }
 
     private DocumentView? CurrentView => (Tabs.SelectedItem as TabViewItem)?.Tag as DocumentView;
@@ -120,7 +112,7 @@ public sealed partial class MainWindow : Window
 
         if (!_benchmark)
             RecentFiles.Add(path);
-        if (ErrorBar is not null) ErrorBar.IsOpen = false;
+        ErrorBar.IsOpen = false;
     }
 
     private async Task PickAndOpenAsync()
@@ -184,7 +176,6 @@ public sealed partial class MainWindow : Window
 
     private void RefreshStartPage()
     {
-        if (StartPage is null) return;
         var entries = RecentFiles.Items
             .Select(p => new RecentEntry(p, Path.GetFileName(p), Path.GetDirectoryName(p) ?? ""))
             .ToList();
@@ -438,8 +429,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowError(string title, string message)
     {
-        if (ErrorBar is null) Root.FindName(nameof(ErrorBar));
-        ErrorBar!.Title = title;
+        ErrorBar.Title = title;
         ErrorBar.Message = message;
         ErrorBar.IsOpen = true;
     }
@@ -529,6 +519,7 @@ internal sealed class DispatcherTimerLike
 
     public void Stop() => _timer.Stop();
 }
+
 
 
 
