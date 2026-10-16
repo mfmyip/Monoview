@@ -118,7 +118,13 @@ public sealed partial class PdfViewer : UserControl
     public PdfDocument Document => _doc;
     public int PageCount => _doc.PageCount;
     public int CurrentPage { get; private set; }
-    public FitMode FitMode { get; private set; } = FitMode.FitWidth;
+    /// <summary>Starts as the "Zoom for newly opened PDFs" setting; Actual size is a custom zoom of 1.</summary>
+    public FitMode FitMode { get; private set; } = AppSettings.Current.DefaultZoom switch
+    {
+        "FitPage" => FitMode.FitPage,
+        "ActualSize" => FitMode.Custom,
+        _ => FitMode.FitWidth,
+    };
     /// <summary>Effective zoom; 1 = actual size (72 points per inch shown as 96 DIPs per inch).</summary>
     public double Zoom => _zoom * _scroller.ZoomFactor;
     public bool HasSelection => _anchor is { } a && _focus is { } f && a != f;
@@ -283,7 +289,7 @@ public sealed partial class PdfViewer : UserControl
         if (!_laidOut)
         {
             StartupTrace.Mark("first_layout");
-            ApplyZoom(ComputeFitZoom(), null, requestTiles: true);
+            ApplyZoom(FitMode == FitMode.Custom ? 1 : ComputeFitZoom(), null, requestTiles: true);
         }
         else if (FitMode != FitMode.Custom)
             ApplyZoom(ComputeFitZoom(), TopCenterAnchor(), requestTiles: false);
@@ -312,7 +318,7 @@ public sealed partial class PdfViewer : UserControl
     }
 
     /// <summary>
-    /// Ctrl+wheel zooms like Acrobat: each notch is an immediate step (20%) around the mouse
+    /// Ctrl+wheel zooms like Acrobat: each notch is an immediate step (20% by default, see Settings) around the mouse
     /// pointer, with no animation. Smooth-scrolling touchpads send smaller deltas and get
     /// proportionally smaller steps. Touchpad pinch still goes through the ScrollViewer.
     /// </summary>
@@ -331,7 +337,7 @@ public sealed partial class PdfViewer : UserControl
     public void WheelZoom(int delta, Point anchor)
     {
         FitMode = FitMode.Custom;
-        double zoom = Zoom * Math.Pow(1.2, delta / 120.0);
+        double zoom = Zoom * Math.Pow(1 + AppSettings.Current.WheelZoomStep, delta / 120.0);
         // Make 100% easy to land on, as Acrobat's zoom steps do.
         if (Math.Abs(zoom - 1) < 0.04) zoom = 1;
         ApplyZoom(zoom, anchor, requestTiles: false);

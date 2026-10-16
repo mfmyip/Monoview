@@ -1,0 +1,73 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace CleanPDF.App;
+
+/// <summary>User preferences, kept in %LOCALAPPDATA%\CleanPDF\settings.json.</summary>
+public sealed class AppSettings
+{
+    public const double DefaultAutoScrollSpeed = 1.3;
+    public const double DefaultWheelZoomStep = 0.2;
+
+    /// <summary>Middle-click autoscroll speed multiplier (1 = the original speed).</summary>
+    public double AutoScrollSpeed { get; set; } = DefaultAutoScrollSpeed;
+
+    /// <summary>Zoom change per Ctrl+wheel notch, e.g. 0.2 = 20%.</summary>
+    public double WheelZoomStep { get; set; } = DefaultWheelZoomStep;
+
+    /// <summary>Zoom for newly opened documents: "FitWidth", "FitPage" or "ActualSize".</summary>
+    public string DefaultZoom { get; set; } = "FitWidth";
+
+    /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
+    public double SidebarWidth { get; set; } = 220;
+
+    public static double ClampSidebarWidth(double width) => Math.Clamp(width, 160, 520);
+
+    private static readonly string StorePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CleanPDF", "settings.json");
+
+    private static AppSettings? _current;
+
+    public static AppSettings Current => _current ??= Load();
+
+    public static void Save()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
+            File.WriteAllText(StorePath, JsonSerializer.Serialize(Current, SettingsJson.Default.AppSettings));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    public static void ResetToDefaults() => _current = new AppSettings();
+
+    private static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(StorePath))
+            {
+                var loaded = JsonSerializer.Deserialize(File.ReadAllText(StorePath), SettingsJson.Default.AppSettings);
+                if (loaded is not null)
+                {
+                    // Keep hand-edited values in a sane range.
+                    loaded.AutoScrollSpeed = Math.Clamp(loaded.AutoScrollSpeed, 0.25, 4);
+                    loaded.WheelZoomStep = Math.Clamp(loaded.WheelZoomStep, 0.05, 0.5);
+                    loaded.SidebarWidth = ClampSidebarWidth(loaded.SidebarWidth);
+                    return loaded;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+        return new AppSettings();
+    }
+}
+
+[JsonSerializable(typeof(AppSettings))]
+[JsonSourceGenerationOptions(WriteIndented = true)]
+internal sealed partial class SettingsJson : JsonSerializerContext;

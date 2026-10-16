@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
         // Ctrl+= and Ctrl+- on the main keyboard (no named VirtualKey for these).
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
         AddAccelerator((VirtualKey)189, VirtualKeyModifiers.Control, Accel_ZoomOut);
+        AddAccelerator((VirtualKey)188, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = OpenSettingsAsync(); }); // Ctrl+,
 
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
         Closed += (_, _) =>
@@ -98,6 +99,11 @@ public sealed partial class MainWindow : Window
         view.Viewer.CurrentPageChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdatePageLabel(); };
         view.Viewer.ZoomChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateZoomLabel(); };
         view.SearchChanged += (s, _) => { if (ReferenceEquals(s, CurrentView)) UpdateSearchCount(); };
+        view.SidebarWidthChanged += (s, _) =>
+        {
+            foreach (var other in DocumentViews())
+                if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
+        };
         if (_benchmark)
             view.Viewer.FirstPageRendered += (_, _) => ReportBenchmarkAndExit();
 
@@ -213,7 +219,7 @@ public sealed partial class MainWindow : Window
     {
         // Document tools only appear when there's a document; the tab strip only when there are tabs.
         var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
-        DocTools.Visibility = SearchTools.Visibility = docVisibility;
+        SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
         Tabs.Visibility = Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
         UpdatePageLabel();
@@ -237,11 +243,17 @@ public sealed partial class MainWindow : Window
     private void UpdateSearchCount()
     {
         var view = CurrentView;
-        SearchCount.Text = view is null || view.SearchQuery.Length == 0 ? ""
-            : view.HitCount == 0 ? "0"
+        bool searched = view is not null && view.SearchQuery.Length > 0;
+        SearchCount.Text = !searched ? ""
+            : view!.HitCount == 0 ? "0"
             : $"{view.CurrentHitIndex + 1} of {view.HitCount}";
+        // The match count and ↑/↓ only make sense once something has been searched.
+        var visibility = searched ? Visibility.Visible : Visibility.Collapsed;
+        SearchCount.Visibility = PrevHitButton.Visibility = NextHitButton.Visibility = visibility;
     }
 
+
+    private void SidebarButton_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
 
     private void ToggleSidebar() => CurrentView?.ToggleSidebar();
 
@@ -421,6 +433,24 @@ public sealed partial class MainWindow : Window
             await Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps"));
     }
 
+    private void Settings_Click(object sender, RoutedEventArgs e) => _ = OpenSettingsAsync();
+
+    private bool _settingsOpen;
+
+    private async Task OpenSettingsAsync()
+    {
+        if (_settingsOpen || Root.XamlRoot is null) return; // only one ContentDialog can be open at a time
+        _settingsOpen = true;
+        try
+        {
+            await SettingsDialog.ShowAsync(Root.XamlRoot);
+        }
+        finally
+        {
+            _settingsOpen = false;
+        }
+    }
+
     private void Unregister_Click(object sender, RoutedEventArgs e)
     {
         AppRegistration.Unregister();
@@ -474,6 +504,7 @@ public sealed partial class MainWindow : Window
                     else doc.SelectSidebarTab(tab);
                 }
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
+                if (args.Contains("--settings-dialog")) { _ = OpenSettingsAsync(); await Task.Delay(800); }
                 if (args.Contains("--autoscroll-test"))
                 {
                     // Anchor mid-page with the pointer 150 px below it; the icon stays up for the screenshot.
@@ -501,6 +532,8 @@ public sealed partial class MainWindow : Window
                 await Task.Delay(500);
                 await SaveScreenshotAsync(shot);
             }
+            // Keeps the window up so an outside tool can capture popups (dialogs aren't in Root's render).
+            if (Arg("--hold") is { } hold) await Task.Delay(int.Parse(hold));
             Application.Current.Exit();
         }
     }

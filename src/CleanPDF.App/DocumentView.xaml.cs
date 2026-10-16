@@ -3,6 +3,7 @@ using CleanPDF.App.Viewer;
 using CleanPDF.Engine;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 
 namespace CleanPDF.App;
 
@@ -53,23 +54,74 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
         Viewer.CurrentPageChanged += (_, _) => SyncThumbnailSelection();
         Loaded += (_, _) => SyncThumbnailSelection();
+        SidebarColumn.Width = new GridLength(AppSettings.Current.SidebarWidth);
     }
 
     public void ToggleSidebar() => SetSidebarVisible(!IsSidebarVisible);
 
     public void SetSidebarVisible(bool visible)
     {
-        Sidebar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        SidebarColumn.Width = visible ? new GridLength(220) : new GridLength(0);
-
-        // ← (E72B) hides the sidebar, → (E72A) shows it.
-        SidebarToggleIcon.Glyph = visible ? "" : "";
-        string label = visible ? "Hide sidebar" : "Show sidebar";
-        ToolTipService.SetToolTip(SidebarToggle, $"{label} (Ctrl+B)");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SidebarToggle, label);
+        Sidebar.Visibility = SidebarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        // Reopening uses the width the user last dragged it to.
+        SidebarColumn.Width = new GridLength(visible ? AppSettings.Current.SidebarWidth : 0);
     }
 
-    private void SidebarToggle_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
+    // ---------------- Sidebar resizing ----------------
+
+    private static readonly Microsoft.UI.Input.InputCursor ResizeCursor =
+        Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+    private double? _dragStartX, _dragStartWidth;
+
+    private void SidebarSplitter_PointerEntered(object sender, PointerRoutedEventArgs e) => ProtectedCursor = ResizeCursor;
+
+    private void SidebarSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (_dragStartX is null) ProtectedCursor = null;
+    }
+
+    private void SidebarSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        _dragStartX = e.GetCurrentPoint(this).Position.X;
+        _dragStartWidth = SidebarColumn.ActualWidth;
+        SidebarSplitter.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void SidebarSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_dragStartX is not { } startX || _dragStartWidth is not { } startWidth) return;
+        double width = AppSettings.ClampSidebarWidth(startWidth + e.GetCurrentPoint(this).Position.X - startX);
+        SidebarColumn.Width = new GridLength(width);
+        e.Handled = true;
+    }
+
+    private void SidebarSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_dragStartX is null) return;
+        SidebarSplitter.ReleasePointerCapture(e.Pointer);
+        EndSidebarDrag();
+    }
+
+    private void SidebarSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e) => EndSidebarDrag();
+
+    private void EndSidebarDrag()
+    {
+        if (_dragStartX is null) return;
+        _dragStartX = _dragStartWidth = null;
+        ProtectedCursor = null;
+        AppSettings.Current.SidebarWidth = SidebarColumn.ActualWidth;
+        AppSettings.Save();
+        SidebarWidthChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>The user dragged the sidebar to a new width (other open documents follow).</summary>
+    public event EventHandler? SidebarWidthChanged;
+
+    public void ApplySidebarWidth()
+    {
+        if (IsSidebarVisible) SidebarColumn.Width = new GridLength(AppSettings.Current.SidebarWidth);
+    }
 
     // ---------------- Thumbnails ----------------
 

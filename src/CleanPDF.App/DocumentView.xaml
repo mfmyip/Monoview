@@ -7,7 +7,7 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="SidebarColumn" Width="220" />
+            <ColumnDefinition x:Name="SidebarColumn" Width="220" MinWidth="0" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -83,16 +83,14 @@
 
         <Border x:Name="ViewerHost" Grid.Column="1" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" />
 
-        <!-- Sidebar toggle at the sidebar's edge: ← hides it, → brings it back. Sized to sit in the
-             viewer's 24 px page margin so it doesn't cover the page at fit-width. -->
-        <Button x:Name="SidebarToggle" Grid.Column="1" Width="22" Height="22" Padding="0" Margin="1,6,0,0"
-                HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="4"
-                Background="{ThemeResource ControlSolidFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
-                Click="SidebarToggle_Click"
-                ToolTipService.ToolTip="Hide sidebar (Ctrl+B)" AutomationProperties.Name="Hide sidebar">
-            <FontIcon x:Name="SidebarToggleIcon" Glyph="&#xE72B;" FontSize="11" />
-        </Button>
+        <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->
+        <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="-3,0,0,0"
+                HorizontalAlignment="Left" Background="Transparent"
+                PointerEntered="SidebarSplitter_PointerEntered" PointerExited="SidebarSplitter_PointerExited"
+                PointerPressed="SidebarSplitter_PointerPressed" PointerMoved="SidebarSplitter_PointerMoved"
+                PointerReleased="SidebarSplitter_PointerReleased" PointerCaptureLost="SidebarSplitter_PointerCaptureLost"
+                AutomationProperties.Name="Resize sidebar" />
+
     </Grid>
 </UserControl>
 

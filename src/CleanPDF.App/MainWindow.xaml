@@ -60,6 +60,11 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <Button x:Name="SidebarButton" Style="{StaticResource ToolButton}" Click="SidebarButton_Click"
+                        ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
+                    <FontIcon Glyph="&#xE8A0;" FontSize="16" />
+                </Button>
+                <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
                 <Button Style="{StaticResource ToolButton}" Click="Open_Click"
                         ToolTipService.ToolTip="Open (Ctrl+O)" AutomationProperties.Name="Open">
                     <FontIcon Glyph="&#xE8E5;" FontSize="16" />
@@ -112,12 +117,12 @@
                              AutomationProperties.Name="Search"
                              KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged" />
                     <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="48" TextAlignment="Center"
-                               Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Button Style="{StaticResource ToolButton}" Click="PrevHit_Click"
+                               Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                    <Button x:Name="PrevHitButton" Style="{StaticResource ToolButton}" Click="PrevHit_Click" Visibility="Collapsed"
                             ToolTipService.ToolTip="Previous match (Shift+F3)" AutomationProperties.Name="Previous match">
                         <FontIcon Glyph="&#xE70E;" FontSize="12" />
                     </Button>
-                    <Button Style="{StaticResource ToolButton}" Click="NextHit_Click"
+                    <Button x:Name="NextHitButton" Style="{StaticResource ToolButton}" Click="NextHit_Click" Visibility="Collapsed"
                             ToolTipService.ToolTip="Next match (F3)" AutomationProperties.Name="Next match">
                         <FontIcon Glyph="&#xE70D;" FontSize="12" />
                     </Button>
@@ -132,6 +137,12 @@
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutItem x:Name="UnregisterButton" Text="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Settings" Click="Settings_Click" KeyboardAcceleratorTextOverride="Ctrl+,">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE713;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

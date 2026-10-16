@@ -157,8 +157,8 @@ public sealed partial class PdfViewer
     {
         double d = Math.Abs(offset) - AutoScrollDeadZone;
         if (d <= 0) return 0;
-        // Gentle near the anchor, quick further out: 50 px ≈ 375 px/s, 200 px ≈ 2,200 px/s.
-        return Math.Sign(offset) * (d * 6 + d * d * 0.03);
+        // Gentle near the anchor, quick further out: at speed 1, 50 px ≈ 375 px/s and 200 px ≈ 2,200 px/s.
+        return Math.Sign(offset) * (d * 6 + d * d * 0.03) * AppSettings.Current.AutoScrollSpeed;
     }
 
     private static FrameworkElement CreateAutoScrollIcon()
