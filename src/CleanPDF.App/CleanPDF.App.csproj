@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>CleanPDF.App</RootNamespace>
+    <AssemblyName>CleanPDF</AssemblyName>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Unpackaged, self-contained Windows App SDK: runs as a plain .exe with no runtime install. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Without this, `dotnet publish` omits CleanPDF.pri and the app crashes on launch. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Only ship English resources for now (Windows App SDK bundles ~100 languages). -->
+    <SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+
+    <!-- Startup speed: precompile IL so less JIT work at launch. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CleanPDF.Engine\CleanPDF.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

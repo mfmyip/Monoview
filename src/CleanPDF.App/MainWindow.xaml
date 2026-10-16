@@ -1,0 +1,43 @@
+<Window
+    x:Class="CleanPDF.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="CleanPDF">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <CommandBar Grid.Row="0" DefaultLabelPosition="Right" HorizontalAlignment="Left" Background="Transparent">
+            <AppBarButton Icon="OpenFile" Label="Open" Click="Open_Click">
+                <AppBarButton.KeyboardAccelerators>
+                    <KeyboardAccelerator Modifiers="Control" Key="O" />
+                </AppBarButton.KeyboardAccelerators>
+            </AppBarButton>
+            <AppBarSeparator />
+            <AppBarButton Icon="Back" Label="Previous" Click="Prev_Click" />
+            <AppBarButton Icon="Forward" Label="Next" Click="Next_Click" />
+            <AppBarElementContainer VerticalContentAlignment="Center">
+                <TextBlock x:Name="PageLabel" Margin="12,0" VerticalAlignment="Center" />
+            </AppBarElementContainer>
+        </CommandBar>
+
+        <ScrollViewer x:Name="Scroller" Grid.Row="1"
+                      ZoomMode="Enabled" MinZoomFactor="0.25" MaxZoomFactor="8"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="24"
+                    Background="White" BorderBrush="#33000000" BorderThickness="1">
+                <Image x:Name="PageImage" Stretch="None" />
+            </Border>
+        </ScrollViewer>
+
+        <TextBlock x:Name="EmptyHint" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Text="Open a PDF (Ctrl+O)" Opacity="0.6" FontSize="18" />
+    </Grid>
+</Window>
