@@ -18,6 +18,14 @@ public sealed class AppSettings
     /// <summary>Zoom for newly opened documents: "FitWidth", "FitPage" or "ActualSize".</summary>
     public string DefaultZoom { get; set; } = "FitWidth";
 
+    /// <summary>"System" (follow Windows' app mode), "Light" or "Dark".</summary>
+    public string Theme { get; set; } = "System";
+
+    /// <summary>Raised when a setting that needs re-applying (the theme) changes.</summary>
+    public static event EventHandler? Changed;
+
+    public static void RaiseChanged() => Changed?.Invoke(null, EventArgs.Empty);
+
     /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
     public double SidebarWidth { get; set; } = 220;
 

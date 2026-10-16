@@ -13,6 +13,20 @@ internal static class SettingsDialog
         ("ActualSize", "Actual size (100%)"),
     ];
 
+    private static readonly (string Key, string Label)[] ThemeChoices =
+    [
+        ("System", "Use Windows setting"),
+        ("Light", "Light"),
+        ("Dark", "Dark"),
+    ];
+
+    private static ElementTheme ToElementTheme(string theme) => theme switch
+    {
+        "Light" => ElementTheme.Light,
+        "Dark" => ElementTheme.Dark,
+        _ => ElementTheme.Default,
+    };
+
     public static async Task ShowAsync(XamlRoot root)
     {
         var settings = AppSettings.Current;
@@ -37,7 +51,12 @@ internal static class SettingsDialog
             if (defaultZoom.SelectedIndex >= 0) settings.DefaultZoom = ZoomChoices[defaultZoom.SelectedIndex].Key;
         };
 
+        var theme = new RadioButtons();
+        foreach (var (_, label) in ThemeChoices) theme.Items.Add(label);
+        theme.SelectedIndex = Math.Max(0, Array.FindIndex(ThemeChoices, c => c.Key == settings.Theme));
+
         var content = new StackPanel { Spacing = 20, MinWidth = 380 };
+        content.Children.Add(Section("Theme", null, null, theme));
         content.Children.Add(Section("Middle-click scroll speed",
             "How fast the page moves when you click the mouse wheel and move the mouse.", speedValue, speed));
         content.Children.Add(Section("Ctrl + scroll zoom step",
@@ -52,6 +71,14 @@ internal static class SettingsDialog
             PrimaryButtonText = "Done",
             SecondaryButtonText = "Reset to defaults",
             DefaultButton = ContentDialogButton.Primary,
+            RequestedTheme = ToElementTheme(settings.Theme),
+        };
+        theme.SelectionChanged += (_, _) =>
+        {
+            if (theme.SelectedIndex < 0) return;
+            settings.Theme = ThemeChoices[theme.SelectedIndex].Key;
+            dialog.RequestedTheme = ToElementTheme(settings.Theme); // the dialog switches along with the window
+            AppSettings.RaiseChanged();
         };
         dialog.SecondaryButtonClick += (_, args) =>
         {
@@ -59,6 +86,7 @@ internal static class SettingsDialog
             speed.Value = AppSettings.DefaultAutoScrollSpeed;
             step.Value = AppSettings.DefaultWheelZoomStep * 100;
             defaultZoom.SelectedIndex = 0;
+            theme.SelectedIndex = 0;
         };
 
         await dialog.ShowAsync();

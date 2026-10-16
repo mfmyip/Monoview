@@ -31,8 +31,9 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 1400));
 
         // Windows draws a light title bar for desktop apps unless asked; match the app's theme.
-        UseDarkTitleBar(Application.Current.RequestedTheme == ApplicationTheme.Dark);
         Root.ActualThemeChanged += (_, _) => UseDarkTitleBar(Root.ActualTheme == ElementTheme.Dark);
+        ApplyTheme();
+        AppSettings.Changed += (_, _) => ApplyTheme();
 
         // Ctrl+= and Ctrl+- on the main keyboard (no named VirtualKey for these).
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
@@ -550,6 +551,23 @@ public sealed partial class MainWindow : Window
         await encoder.FlushAsync();
         using var file = File.Create(path);
         await stream.AsStreamForRead().CopyToAsync(file);
+    }
+
+    /// <summary>Applies the Theme setting (or the --theme=light|dark dev flag) to the window and its title bar.</summary>
+    private void ApplyTheme()
+    {
+        string? flag = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--theme=", StringComparison.Ordinal))?[8..];
+        string theme = flag ?? AppSettings.Current.Theme;
+        var requested = theme.ToLowerInvariant() switch
+        {
+            "light" => ElementTheme.Light,
+            "dark" => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
+        Root.RequestedTheme = requested;
+        UseDarkTitleBar(requested == ElementTheme.Default
+            ? Application.Current.RequestedTheme == ApplicationTheme.Dark
+            : requested == ElementTheme.Dark);
     }
 
     private void UseDarkTitleBar(bool dark)
