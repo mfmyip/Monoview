@@ -34,91 +34,121 @@
             <KeyboardAccelerator Modifiers="Control" Key="Number8" Invoked="Accel_FitWidth" />
             <KeyboardAccelerator Modifiers="Control" Key="Number9" Invoked="Accel_FitPage" />
         </Grid.KeyboardAccelerators>
-        <TabView x:Name="Tabs" Grid.Row="0" VerticalAlignment="Top"
-                 TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="False"
-                 AddTabButtonClick="Tabs_AddTabButtonClick"
-                 TabCloseRequested="Tabs_TabCloseRequested"
-                 SelectionChanged="Tabs_SelectionChanged">
-        </TabView>
+        <Grid.Resources>
+            <!-- Flat, compact toolbar buttons: no fill or border until hovered. -->
+            <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="CornerRadius" Value="4" />
+            </Style>
+            <Style x:Key="ToolSeparator" TargetType="Rectangle">
+                <Setter Property="Width" Value="1" />
+                <Setter Property="Height" Value="20" />
+                <Setter Property="Margin" Value="6,0" />
+                <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            </Style>
+        </Grid.Resources>
 
-        <Grid x:Name="Toolbar" Grid.Row="1" Padding="4,0,12,0" ColumnSpacing="8">
+        <!-- Toolbar first, like Preview; the tab strip below it only appears once a document is open. -->
+        <Grid x:Name="Toolbar" Grid.Row="0" Padding="8,6" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <CommandBar DefaultLabelPosition="Collapsed" HorizontalAlignment="Left" Background="Transparent"
-                        IsDynamicOverflowEnabled="True">
-                <AppBarToggleButton x:Name="SidebarButton" Label="Sidebar" ToolTipService.ToolTip="Sidebar (Ctrl+B)"
-                                    Click="SidebarButton_Click" IsChecked="True">
-                    <AppBarToggleButton.Icon>
-                        <FontIcon Glyph="&#xE89F;" />
-                    </AppBarToggleButton.Icon>
-                </AppBarToggleButton>
-                <AppBarButton Icon="OpenFile" Label="Open" ToolTipService.ToolTip="Open (Ctrl+O)" Click="Open_Click" />
-                <AppBarButton x:Name="RecentButton" Label="Recent" ToolTipService.ToolTip="Recent files">
-                    <AppBarButton.Icon>
-                        <FontIcon Glyph="&#xE81C;" />
-                    </AppBarButton.Icon>
-                    <AppBarButton.Flyout>
-                        <MenuFlyout x:Name="RecentMenu" Opening="RecentMenu_Opening" />
-                    </AppBarButton.Flyout>
-                </AppBarButton>
-                <AppBarSeparator />
-                <AppBarButton x:Name="ZoomOutButton" Icon="ZoomOut" Label="Zoom out" ToolTipService.ToolTip="Zoom out (Ctrl+-)" Click="ZoomOut_Click" />
-                <AppBarButton x:Name="ZoomButton" Label="Zoom" ToolTipService.ToolTip="Zoom options" Width="76">
-                    <AppBarButton.Content>
-                        <TextBlock x:Name="ZoomLabel" Text="100%" HorizontalAlignment="Center" />
-                    </AppBarButton.Content>
-                    <AppBarButton.Flyout>
-                        <MenuFlyout>
-                            <MenuFlyoutItem Text="Fit width" Click="FitWidth_Click" KeyboardAcceleratorTextOverride="Ctrl+8" />
-                            <MenuFlyoutItem Text="Fit page" Click="FitPage_Click" KeyboardAcceleratorTextOverride="Ctrl+9" />
-                            <MenuFlyoutItem Text="Actual size" Click="ActualSize_Click" KeyboardAcceleratorTextOverride="Ctrl+0" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="50%" Tag="0.5" Click="ZoomPreset_Click" />
-                            <MenuFlyoutItem Text="100%" Tag="1" Click="ZoomPreset_Click" />
-                            <MenuFlyoutItem Text="150%" Tag="1.5" Click="ZoomPreset_Click" />
-                            <MenuFlyoutItem Text="200%" Tag="2" Click="ZoomPreset_Click" />
-                            <MenuFlyoutItem Text="400%" Tag="4" Click="ZoomPreset_Click" />
-                        </MenuFlyout>
-                    </AppBarButton.Flyout>
-                </AppBarButton>
-                <AppBarButton x:Name="ZoomInButton" Icon="ZoomIn" Label="Zoom in" ToolTipService.ToolTip="Zoom in (Ctrl++)" Click="ZoomIn_Click" />
-                <AppBarSeparator />
-                <AppBarElementContainer VerticalContentAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="4,0">
-                        <TextBox x:Name="PageBox" Width="56" MinWidth="56" TextAlignment="Center"
-                                 KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
-                        <TextBlock x:Name="PageCountLabel" VerticalAlignment="Center" Opacity="0.8" />
-                    </StackPanel>
-                </AppBarElementContainer>
-
-                <CommandBar.SecondaryCommands>
-                    <AppBarButton x:Name="RegisterButton" Label="Add CleanPDF to “Open with”…" Click="Register_Click">
-                        <AppBarButton.Icon>
-                            <FontIcon Glyph="&#xE7AC;" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton x:Name="UnregisterButton" Label="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
-                </CommandBar.SecondaryCommands>
-            </CommandBar>
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <TextBox x:Name="SearchBox" Width="240" PlaceholderText="Search (Ctrl+F)"
-                         KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged" />
-                <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="56" TextAlignment="Center"
-                           Opacity="0.8" Style="{StaticResource CaptionTextBlockStyle}" />
-                <Button x:Name="PrevHitButton" ToolTipService.ToolTip="Previous match (Shift+F3)" Click="PrevHit_Click"
-                        Background="Transparent" BorderThickness="0" Padding="8">
-                    <FontIcon Glyph="&#xE70E;" FontSize="12" />
+            <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <Button x:Name="SidebarButton" Style="{StaticResource ToolButton}" Click="SidebarButton_Click"
+                        ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
+                    <FontIcon Glyph="&#xE8A0;" FontSize="16" />
                 </Button>
-                <Button x:Name="NextHitButton" ToolTipService.ToolTip="Next match (F3)" Click="NextHit_Click"
-                        Background="Transparent" BorderThickness="0" Padding="8">
-                    <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
+                <Button Style="{StaticResource ToolButton}" Click="Open_Click"
+                        ToolTipService.ToolTip="Open (Ctrl+O)" AutomationProperties.Name="Open">
+                    <FontIcon Glyph="&#xE8E5;" FontSize="16" />
+                </Button>
+                <Button Style="{StaticResource ToolButton}" ToolTipService.ToolTip="Recent files" AutomationProperties.Name="Recent files">
+                    <FontIcon Glyph="&#xE81C;" FontSize="16" />
+                    <Button.Flyout>
+                        <MenuFlyout x:Name="RecentMenu" Placement="BottomEdgeAlignedLeft" Opening="RecentMenu_Opening" />
+                    </Button.Flyout>
+                </Button>
+
+                <StackPanel x:Name="DocTools" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Rectangle Style="{StaticResource ToolSeparator}" />
+                    <Button Style="{StaticResource ToolButton}" Click="ZoomOut_Click"
+                            ToolTipService.ToolTip="Zoom out (Ctrl+-)" AutomationProperties.Name="Zoom out">
+                        <FontIcon Glyph="&#xE71F;" FontSize="16" />
+                    </Button>
+                    <DropDownButton Height="32" MinWidth="76" Padding="8,0" Background="Transparent" BorderThickness="0"
+                                    CornerRadius="4" ToolTipService.ToolTip="Zoom" AutomationProperties.Name="Zoom">
+                        <TextBlock x:Name="ZoomLabel" Text="100%" />
+                        <DropDownButton.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuFlyoutItem Text="Fit width" Click="FitWidth_Click" KeyboardAcceleratorTextOverride="Ctrl+8" />
+                                <MenuFlyoutItem Text="Fit page" Click="FitPage_Click" KeyboardAcceleratorTextOverride="Ctrl+9" />
+                                <MenuFlyoutItem Text="Actual size" Click="ActualSize_Click" KeyboardAcceleratorTextOverride="Ctrl+0" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="50%" Tag="0.5" Click="ZoomPreset_Click" />
+                                <MenuFlyoutItem Text="100%" Tag="1" Click="ZoomPreset_Click" />
+                                <MenuFlyoutItem Text="150%" Tag="1.5" Click="ZoomPreset_Click" />
+                                <MenuFlyoutItem Text="200%" Tag="2" Click="ZoomPreset_Click" />
+                                <MenuFlyoutItem Text="400%" Tag="4" Click="ZoomPreset_Click" />
+                            </MenuFlyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                    <Button Style="{StaticResource ToolButton}" Click="ZoomIn_Click"
+                            ToolTipService.ToolTip="Zoom in (Ctrl++)" AutomationProperties.Name="Zoom in">
+                        <FontIcon Glyph="&#xE8A3;" FontSize="16" />
+                    </Button>
+                    <Rectangle Style="{StaticResource ToolSeparator}" />
+                    <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
+                             AutomationProperties.Name="Page number"
+                             KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
+                    <TextBlock x:Name="PageCountLabel" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.7" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <StackPanel x:Name="SearchTools" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <TextBox x:Name="SearchBox" Width="220" Height="32" PlaceholderText="Search (Ctrl+F)"
+                             AutomationProperties.Name="Search"
+                             KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged" />
+                    <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="48" TextAlignment="Center"
+                               Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Button Style="{StaticResource ToolButton}" Click="PrevHit_Click"
+                            ToolTipService.ToolTip="Previous match (Shift+F3)" AutomationProperties.Name="Previous match">
+                        <FontIcon Glyph="&#xE70E;" FontSize="12" />
+                    </Button>
+                    <Button Style="{StaticResource ToolButton}" Click="NextHit_Click"
+                            ToolTipService.ToolTip="Next match (F3)" AutomationProperties.Name="Next match">
+                        <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                    </Button>
+                </StackPanel>
+                <Button Style="{StaticResource ToolButton}" ToolTipService.ToolTip="More" AutomationProperties.Name="More">
+                    <FontIcon Glyph="&#xE712;" FontSize="16" />
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuFlyoutItem x:Name="RegisterButton" Text="Add CleanPDF to “Open with”…" Click="Register_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE7AC;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="UnregisterButton" Text="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
+                        </MenuFlyout>
+                    </Button.Flyout>
                 </Button>
             </StackPanel>
         </Grid>
+
+        <TabView x:Name="Tabs" Grid.Row="1" VerticalAlignment="Top" Visibility="Collapsed"
+                 TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="False"
+                 AddTabButtonClick="Tabs_AddTabButtonClick"
+                 TabCloseRequested="Tabs_TabCloseRequested"
+                 SelectionChanged="Tabs_SelectionChanged">
+        </TabView>
 
         <InfoBar x:Name="ErrorBar" Grid.Row="2" Severity="Error" IsOpen="False" Margin="12,0,12,8" />
 

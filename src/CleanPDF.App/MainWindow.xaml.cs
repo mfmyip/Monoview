@@ -30,6 +30,10 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 1400));
 
+        // Windows draws a light title bar for desktop apps unless asked; match the app's theme.
+        UseDarkTitleBar(Application.Current.RequestedTheme == ApplicationTheme.Dark);
+        Root.ActualThemeChanged += (_, _) => UseDarkTitleBar(Root.ActualTheme == ElementTheme.Dark);
+
         // Ctrl+= and Ctrl+- on the main keyboard (no named VirtualKey for these).
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
         AddAccelerator((VirtualKey)189, VirtualKeyModifiers.Control, Accel_ZoomOut);
@@ -106,8 +110,11 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(tab, path);
         view.Visibility = Visibility.Collapsed;
         DocumentHost.Children.Add(view);
+        // A collapsed TabView doesn't apply selection, so show it before adding the first tab.
+        Tabs.Visibility = Visibility.Visible;
         Tabs.TabItems.Add(tab);
         Tabs.SelectedItem = tab;
+        OnCurrentDocumentChanged();
         StartupTrace.Mark("tab_added");
 
         if (!_benchmark)
@@ -204,10 +211,10 @@ public sealed partial class MainWindow : Window
 
     private void UpdateToolbar()
     {
-        bool hasDoc = CurrentView is not null;
-        foreach (var control in new Control[] { SidebarButton, ZoomOutButton, ZoomButton, ZoomInButton, PageBox, SearchBox, PrevHitButton, NextHitButton })
-            control.IsEnabled = hasDoc;
-        SidebarButton.IsChecked = CurrentView?.IsSidebarVisible ?? false;
+        // Document tools only appear when there's a document; the tab strip only when there are tabs.
+        var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
+        SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
+        Tabs.Visibility = Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
         UpdatePageLabel();
         UpdateZoomLabel();
@@ -237,11 +244,7 @@ public sealed partial class MainWindow : Window
 
     private void SidebarButton_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
 
-    private void ToggleSidebar()
-    {
-        CurrentView?.ToggleSidebar();
-        SidebarButton.IsChecked = CurrentView?.IsSidebarVisible ?? false;
-    }
+    private void ToggleSidebar() => CurrentView?.ToggleSidebar();
 
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.ZoomIn();
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.ZoomOut();
@@ -493,9 +496,19 @@ public sealed partial class MainWindow : Window
         await stream.AsStreamForRead().CopyToAsync(file);
     }
 
+    private void UseDarkTitleBar(bool dark)
+    {
+        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        int value = dark ? 1 : 0;
+        DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), DWMWA_USE_IMMERSIVE_DARK_MODE, ref value, sizeof(int));
+    }
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetForegroundWindow(IntPtr hwnd);
+
+    [LibraryImport("dwmapi.dll")]
+    private static partial int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }
 
 /// <summary>A restartable one-shot timer on the UI thread.</summary>
