@@ -132,9 +132,16 @@
                                 </MenuFlyoutItem>
                                 <MenuFlyoutItem Text="Rotate counter-clockwise" Click="RotateLeft_Click" KeyboardAcceleratorTextOverride="Ctrl+L" />
                                 <ToggleMenuFlyoutItem x:Name="SinglePageItem" Text="Single page" Click="SinglePage_Click" />
+                                <ToggleMenuFlyoutItem x:Name="TwoPageItem" Text="Two-page view" Click="TwoPage_Click" />
                                 <ToggleMenuFlyoutItem x:Name="FullScreenItem" Text="Full screen" Click="FullScreen_Click" KeyboardAcceleratorTextOverride="F11" />
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Go to page…" Click="GoToPage_Click" KeyboardAcceleratorTextOverride="Ctrl+G" />
+                                <MenuFlyoutItem x:Name="BackItem" Text="Back" Click="Back_Click" KeyboardAcceleratorTextOverride="Alt+Left">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72B;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="ForwardItem" Text="Forward" Click="Forward_Click" KeyboardAcceleratorTextOverride="Alt+Right">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72A;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
                                 <MenuFlyoutItem Text="Next tab" Click="NextTab_Click" KeyboardAcceleratorTextOverride="Ctrl+Tab" />
                                 <MenuFlyoutItem Text="Previous tab" Click="PreviousTab_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+Tab" />
                             </MenuFlyoutSubItem>
@@ -234,6 +241,15 @@
                     <TextBox x:Name="SearchBox" Width="220" Height="32" PlaceholderText="Search (Ctrl+F)"
                              AutomationProperties.Name="Search"
                              KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged" />
+                    <Button Style="{StaticResource ToolButton}" ToolTipService.ToolTip="Search options" AutomationProperties.Name="Search options">
+                        <TextBlock Text="Aa" FontSize="13" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="SearchOptions_Opening">
+                                <ToggleMenuFlyoutItem x:Name="MatchCaseItem" Text="Match case" Click="SearchOption_Click" />
+                                <ToggleMenuFlyoutItem x:Name="WholeWordItem" Text="Whole words only" Click="SearchOption_Click" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <TextBlock x:Name="SearchCount" VerticalAlignment="Center" MinWidth="48" TextAlignment="Center"
                                Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
                     <Button x:Name="PrevHitButton" Style="{StaticResource ToolButton}" Click="PrevHit_Click" Visibility="Collapsed"

@@ -63,6 +63,10 @@ internal static class SettingsDialog
             "How much each notch of the wheel zooms while holding Ctrl.", stepValue, step));
         content.Children.Add(Section("Zoom for newly opened PDFs", null, null, defaultZoom));
 
+        var rememberPage = new ToggleSwitch { IsOn = settings.RememberLastPage };
+        rememberPage.Toggled += (_, _) => settings.RememberLastPage = rememberPage.IsOn;
+        content.Children.Add(Section("Reopen files at the last page read", null, null, rememberPage));
+
         var dialog = new ContentDialog
         {
             XamlRoot = root,
@@ -86,6 +90,7 @@ internal static class SettingsDialog
             speed.Value = AppSettings.DefaultAutoScrollSpeed;
             step.Value = AppSettings.DefaultWheelZoomStep * 100;
             defaultZoom.SelectedIndex = 0;
+            rememberPage.IsOn = true;
             theme.SelectedIndex = 0;
         };
 

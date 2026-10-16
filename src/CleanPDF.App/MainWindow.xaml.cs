@@ -63,8 +63,13 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             foreach (var view in DocumentViews().ToList())
+            {
+                SaveReadingPosition(view);
                 view.Dispose();
+            }
         };
+        AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoBack(); });
+        AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoForward(); });
 
         UpdateToolbar();
     }
@@ -101,16 +106,24 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        PdfDocument doc;
+        PdfDocument? doc;
         try
         {
             doc = await (opening ?? PdfDocument.OpenAsync(path));
             StartupTrace.Mark("doc_opened");
         }
+        catch (PdfPasswordException)
+        {
+            doc = await AskPasswordAndOpenAsync(path);
+        }
         catch (PdfException ex)
         {
             if (!File.Exists(path)) RecentFiles.Remove(path);
             ShowError($"Couldn't open {Path.GetFileName(path)}", ex.Message);
+            doc = null;
+        }
+        if (doc is null)
+        {
             ShowStartPage(Tabs.TabItems.Count == 0);
             return;
         }
@@ -118,6 +131,8 @@ public sealed partial class MainWindow : Window
         var view = CreateDocumentView(doc);
         if (_benchmark)
             view.Viewer.FirstPageRendered += (_, _) => ReportBenchmarkAndExit();
+        else if (AppSettings.Current.RememberLastPage && ReadingPositions.Get(path) is int lastPage and > 0 && lastPage < doc.PageCount)
+            view.Viewer.InitialState = new ViewState(lastPage, 1, view.Viewer.FitMode, 0, false);
 
         var tab = new TabViewItem
         {
@@ -139,6 +154,64 @@ public sealed partial class MainWindow : Window
         if (!_benchmark)
             RecentFiles.Add(path);
         ErrorBar.IsOpen = false;
+    }
+
+    /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
+    private async Task<PdfDocument?> AskPasswordAndOpenAsync(string path)
+    {
+        if (_dialogOpen || Root.XamlRoot is null) return null;
+        _dialogOpen = true;
+        try
+        {
+            string? error = null;
+            while (true)
+            {
+                var box = new PasswordBox { PlaceholderText = "Password", Width = 320 };
+                var content = new StackPanel { Spacing = 8 };
+                content.Children.Add(new TextBlock { Text = $"{Path.GetFileName(path)} is protected with a password.", TextWrapping = TextWrapping.Wrap });
+                content.Children.Add(box);
+                if (error is not null)
+                    content.Children.Add(new TextBlock { Text = error, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"] });
+
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = Root.XamlRoot,
+                    Title = "Enter password",
+                    Content = content,
+                    PrimaryButtonText = "Open",
+                    CloseButtonText = "Cancel",
+                    DefaultButton = ContentDialogButton.Primary,
+                    RequestedTheme = Root.ActualTheme,
+                };
+                dialog.Opened += (_, _) => box.Focus(FocusState.Programmatic);
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+
+                try
+                {
+                    return await PdfDocument.OpenAsync(path, box.Password);
+                }
+                catch (PdfPasswordException ex)
+                {
+                    error = ex.Message;
+                }
+                catch (PdfException ex)
+                {
+                    ShowError($"Couldn't open {Path.GetFileName(path)}", ex.Message);
+                    return null;
+                }
+            }
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
+    }
+
+    /// <summary>Remembers the page so the file reopens there.</summary>
+    private void SaveReadingPosition(DocumentView view)
+    {
+        if (!_benchmark && AppSettings.Current.RememberLastPage)
+            ReadingPositions.Set(view.Document.Path, view.Viewer.CurrentPage);
     }
 
     private string? _tabOutlineData;
@@ -195,7 +268,7 @@ public sealed partial class MainWindow : Window
         PdfDocument doc;
         try
         {
-            doc = await PdfDocument.OpenAsync(path);
+            doc = await PdfDocument.OpenAsync(path, old.Document.Password);
         }
         catch (PdfException ex)
         {
@@ -303,6 +376,7 @@ public sealed partial class MainWindow : Window
     {
         if (tab.Tag is DocumentView view)
         {
+            SaveReadingPosition(view);
             DocumentHost.Children.Remove(view);
             view.Dispose();
         }
@@ -451,7 +525,7 @@ public sealed partial class MainWindow : Window
     private void GoToTypedPage()
     {
         if (CurrentView is { } view && int.TryParse(PageBox.Text.Trim(), out int page))
-            view.Viewer.GoToPage(page - 1);
+            view.Viewer.NavigateTo(page - 1);
         UpdatePageLabel();
     }
 
@@ -628,6 +702,9 @@ public sealed partial class MainWindow : Window
         foreach (var item in new MenuFlyoutItemBase[] { ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
             item.IsEnabled = hasDoc;
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
+        TwoPageItem.IsChecked = view?.Viewer.TwoPage ?? false;
+        BackItem.IsEnabled = view?.Viewer.CanGoBack ?? false;
+        ForwardItem.IsEnabled = view?.Viewer.CanGoForward ?? false;
         FullScreenItem.IsChecked = _fullScreen;
         CopyItem.IsEnabled = view?.Viewer.HasSelection ?? false;
         SidebarItem.Text = view?.IsSidebarVisible == false ? "Show sidebar" : "Hide sidebar";
@@ -651,6 +728,24 @@ public sealed partial class MainWindow : Window
     private void RotateRight_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(+1);
     private void RotateLeft_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(-1);
     private void SinglePage_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.SetSinglePage(SinglePageItem.IsChecked);
+    private void TwoPage_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.SetTwoPage(TwoPageItem.IsChecked);
+    private void Back_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.GoBack();
+    private void Forward_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.GoForward();
+
+    private void SearchOptions_Opening(object? sender, object e)
+    {
+        MatchCaseItem.IsChecked = AppSettings.Current.SearchMatchCase;
+        WholeWordItem.IsChecked = AppSettings.Current.SearchWholeWord;
+    }
+
+    private void SearchOption_Click(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Current.SearchMatchCase = MatchCaseItem.IsChecked;
+        AppSettings.Current.SearchWholeWord = WholeWordItem.IsChecked;
+        AppSettings.Save();
+        if (CurrentView is { SearchQuery.Length: > 0 } view)
+            _ = view.SearchAsync(view.SearchQuery, force: true);
+    }
     private void FullScreen_Click(object sender, RoutedEventArgs e) => SetFullScreen(FullScreenItem.IsChecked);
 
     private void ShowProperties()
@@ -833,6 +928,8 @@ public sealed partial class MainWindow : Window
             // Dev aid: --search=<text> and --screenshot=<file.png> to check the UI without clicking around.
             var args = Environment.GetCommandLineArgs();
             string? Arg(string name) => args.FirstOrDefault(a => a.StartsWith(name + "=", StringComparison.Ordinal))?[(name.Length + 1)..];
+            if (args.Contains("--match-case")) AppSettings.Current.SearchMatchCase = true;
+            if (args.Contains("--whole-word")) AppSettings.Current.SearchWholeWord = true;
             if (Arg("--search") is { } query && CurrentView is { } view)
             {
                 SearchBox.Text = query;
@@ -851,6 +948,22 @@ public sealed partial class MainWindow : Window
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
                 if (Arg("--rotate") is { } turns) { doc.Viewer.Rotate(int.Parse(turns)); await Task.Delay(800); }
                 if (args.Contains("--single-page")) { doc.Viewer.SetSinglePage(true); await Task.Delay(300); }
+                if (args.Contains("--two-page")) { doc.Viewer.SetTwoPage(true); await Task.Delay(800); }
+                if (Arg("--password-prompt") is { } locked) { _ = AskPasswordAndOpenAsync(locked); await Task.Delay(800); }
+                if (args.Contains("--history-test"))
+                {
+                    // Jump to page 6, then Back and Forward: should read 6, start page, 6.
+                    int start = doc.Viewer.CurrentPage + 1;
+                    doc.Viewer.NavigateTo(5);
+                    await Task.Delay(500);
+                    int jumped = doc.Viewer.CurrentPage + 1;
+                    doc.Viewer.GoBack();
+                    await Task.Delay(500);
+                    int back = doc.Viewer.CurrentPage + 1;
+                    doc.Viewer.GoForward();
+                    await Task.Delay(500);
+                    Console.Out.WriteLine($"HISTORY start={start} jumped={jumped} back={back} forward={doc.Viewer.CurrentPage + 1} canBack={doc.Viewer.CanGoBack}");
+                }
                 if (args.Contains("--fullscreen")) { SetFullScreen(true); await Task.Delay(800); }
                 if (args.Contains("--reload"))
                 {

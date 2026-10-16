@@ -9,7 +9,7 @@ namespace CleanPDF.Engine;
 /// An open PDF. All PDFium calls run on <see cref="PdfiumThread"/>; every public method is
 /// async and safe to call from any thread.
 /// </summary>
-public sealed class PdfDocument : IDisposable
+public sealed partial class PdfDocument : IDisposable
 {
     private const int BitmapFormatBgra = 4; // FPDFBitmap_BGRA
     private const int RenderFlagAnnot = 0x01; // FPDF_ANNOT
@@ -31,12 +31,16 @@ public sealed class PdfDocument : IDisposable
     public static string PdfiumVersion => typeof(fpdfview).Assembly.GetName().Version?.ToString(3) ?? "unknown";
 
     public string Path { get; }
+
+    /// <summary>The password the file was opened with, so Reload can reopen it without asking again.</summary>
+    public string? Password { get; }
     public int PageCount => _pageSizes.Length;
     public IReadOnlyList<PageSize> PageSizes => _pageSizes;
 
-    private PdfDocument(string path, FpdfDocumentT doc, PageSize[] sizes)
+    private PdfDocument(string path, string? password, FpdfDocumentT doc, PageSize[] sizes)
     {
         Path = path;
+        Password = password;
         _doc = doc;
         _pageSizes = sizes;
         _transforms = new PageTransform?[sizes.Length];
@@ -54,7 +58,14 @@ public sealed class PdfDocument : IDisposable
 
         var doc = fpdfview.FPDF_LoadDocument(path, password);
         if (IsNull(doc))
-            throw new PdfException(DescribeError(fpdfview.FPDF_GetLastError(), path));
+            {
+            ulong error = fpdfview.FPDF_GetLastError();
+            if (error == 4) // FPDF_ERR_PASSWORD: a password is needed, or the one given is wrong
+                throw new PdfPasswordException(password is null
+                    ? "This PDF is protected with a password."
+                    : "That password is not correct.");
+            throw new PdfException(DescribeError(error, path));
+        }
 
         int count = fpdfview.FPDF_GetPageCount(doc);
         var sizes = new PageSize[count];
@@ -64,7 +75,7 @@ public sealed class PdfDocument : IDisposable
             fpdfview.FPDF_GetPageSizeByIndex(doc, i, ref w, ref h);
             sizes[i] = new PageSize(w, h);
         }
-        return new PdfDocument(path, doc, sizes);
+        return new PdfDocument(path, password, doc, sizes);
     });
 
     /// <summary>
@@ -204,7 +215,8 @@ public sealed class PdfDocument : IDisposable
     /// whitespace (including line breaks) are ignored. <paramref name="onPageHits"/> is called on
     /// the caller's synchronization context once per page that has matches.
     /// </summary>
-    public async Task SearchAsync(string query, Action<IReadOnlyList<SearchHit>> onPageHits, CancellationToken ct = default)
+    public async Task SearchAsync(string query, Action<IReadOnlyList<SearchHit>> onPageHits, CancellationToken ct = default,
+        SearchOptions options = default)
     {
         string needle = SearchText.Normalize(query, out _);
         if (needle.Length == 0) return;
@@ -214,7 +226,7 @@ public sealed class PdfDocument : IDisposable
             ct.ThrowIfCancellationRequested();
             int pageIndex = i;
             var text = _searchTexts[i] ?? await PdfiumThread.Run(() => GetSearchText(pageIndex), WorkPriority.Low, ct);
-            var hits = text.Find(pageIndex, needle);
+            var hits = text.Find(pageIndex, needle, options);
             if (hits.Count > 0)
                 onPageHits(hits);
         }
@@ -444,7 +456,6 @@ public sealed class PdfDocument : IDisposable
     {
         2 => $"File not found or could not be opened: {path}",
         3 => "This file isn't a PDF, or it's damaged.",
-        4 => "This PDF is password-protected. Password support is coming in a later version.",
         5 => "This PDF uses an unsupported security handler.",
         _ => $"Could not open the PDF (PDFium error {code}).",
     };
@@ -462,13 +473,18 @@ public sealed record OutlineItem(string Title, int PageIndex, double? X, double?
 /// <summary>A search match: characters [Start, Start + Length) on a page, with surrounding text for the results list.</summary>
 public sealed record SearchHit(int PageIndex, int Start, int Length, string Snippet, int SnippetMatchStart, int SnippetMatchLength);
 
-public sealed class PdfException(string message) : Exception(message);
+public class PdfException(string message) : Exception(message);
+
+/// <summary>The PDF needs a password, or the password given is wrong.</summary>
+public sealed class PdfPasswordException(string message) : PdfException(message);
+
+public readonly record struct SearchOptions(bool MatchCase, bool WholeWord);
 
 /// <summary>A page's text with whitespace runs collapsed, plus a map back to PDFium character indices.</summary>
 internal sealed class SearchText
 {
     private static readonly CompareInfo Compare = CultureInfo.InvariantCulture.CompareInfo;
-    private const CompareOptions Options = CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreWidth;
+    private const CompareOptions Loose = CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreWidth;
 
     private readonly string _normalized;
     private readonly int[] _map;
@@ -506,15 +522,22 @@ internal sealed class SearchText
         return sb.ToString();
     }
 
-    public List<SearchHit> Find(int pageIndex, string needle)
+    public List<SearchHit> Find(int pageIndex, string needle, SearchOptions options = default)
     {
+        // Match case compares exactly (accents too); the default ignores case, accents and width.
+        var compare = options.MatchCase ? CompareOptions.Ordinal : Loose;
         var hits = new List<SearchHit>();
         int from = 0;
         while (from < _normalized.Length)
         {
-            int idx = Compare.IndexOf(_normalized.AsSpan(from), needle, Options, out int matchLength);
+            int idx = Compare.IndexOf(_normalized.AsSpan(from), needle, compare, out int matchLength);
             if (idx < 0 || matchLength == 0) break;
             idx += from;
+            if (options.WholeWord && !IsWholeWord(idx, matchLength))
+            {
+                from = idx + 1;
+                continue;
+            }
 
             int start = _map[idx];
             int end = _map[idx + matchLength - 1] + 1;
@@ -529,4 +552,8 @@ internal sealed class SearchText
         }
         return hits;
     }
+
+    private bool IsWholeWord(int start, int length) =>
+        (start == 0 || !char.IsLetterOrDigit(_normalized[start - 1])) &&
+        (start + length >= _normalized.Length || !char.IsLetterOrDigit(_normalized[start + length]));
 }

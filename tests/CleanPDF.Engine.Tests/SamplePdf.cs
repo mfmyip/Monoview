@@ -30,15 +30,20 @@ internal static class SamplePdf
             [7] = "<< /Title (Small page) /Parent 6 0 R /Dest [12 0 R /Fit] >>",
             [8] = "<< /Title (CleanPDF sample) /Author (Engine tests) /Producer (SamplePdf.cs) /CreationDate (D:20260101120000+02'00') >>",
 
-            [10] = Page("612 792", 20),
+            [10] = Page("612 792", 20, "/Annots [13 0 R 14 0 R]"),
             [11] = Page("612 792", 21, "/Rotate 90"),
             [12] = Page("300 400", 22),
+
+            // Page 1 links: the title jumps to page 3 at y = 300; a box lower down opens a web address.
+            [13] = "<< /Type /Annot /Subtype /Link /Rect [72 690 300 730] /Border [0 0 0] /Dest [12 0 R /XYZ 0 300 0] >>",
+            [14] = "<< /Type /Annot /Subtype /Link /Rect [72 540 300 560] /Border [0 0 0] /A << /S /URI /URI (https://cleanpdf.example/docs) >> >>",
 
             [20] = Stream(
                 $"BT /F1 24 Tf {TitleX} {TitleY} Td ({Page1Title}) Tj ET\n" +
                 "BT /F1 12 Tf 72 650 Td (The quick brown fox) Tj ET\n" +
                 "BT /F1 12 Tf 72 635 Td (jumps over the) Tj ET\n" +
-                "BT /F1 12 Tf 72 620 Td (lazy dog at the Caf\\351.) Tj ET\n"),
+                "BT /F1 12 Tf 72 620 Td (lazy dog at the Caf\\351.) Tj ET\n" +
+                "BT /F1 12 Tf 72 590 Td (Help: https://example.com/help today) Tj ET\n"),
             [21] = Stream("BT /F1 24 Tf 72 700 Td (Rotated page) Tj ET\n"),
             [22] = Stream("BT /F1 18 Tf 40 300 Td (hello again) Tj ET\n"),
         };

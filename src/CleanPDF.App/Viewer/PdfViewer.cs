@@ -19,7 +19,7 @@ namespace CleanPDF.App.Viewer;
 public enum FitMode { FitWidth, FitPage, Custom }
 
 /// <summary>What Reload carries over to the reopened document.</summary>
-public sealed record ViewState(int Page, double Zoom, FitMode FitMode, int Rotation, bool SinglePage);
+public sealed record ViewState(int Page, double Zoom, FitMode FitMode, int Rotation, bool SinglePage, bool TwoPage = false);
 
 /// <summary>
 /// Continuous-scroll page view. Pages are laid out in a column on a canvas inside a
@@ -55,10 +55,12 @@ public sealed partial class PdfViewer : UserControl
     private bool _holdZoomWhileResizing;
     private int _rotation;
     private bool _singlePage;
+    private bool _twoPage;
 
     private TextPos? _anchor, _focus;
     private bool _selecting;
     private bool _textCursorShown;
+    private bool _overLink;
 
     private Dictionary<int, List<SearchHit>> _hits = new();
     private SearchHit? _currentHit;
@@ -145,7 +147,22 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>State to restore on first layout (Reload keeps page, zoom, rotation and layout).</summary>
     public ViewState? InitialState { get; set; }
 
-    public ViewState CaptureState() => new(CurrentPage, Zoom, FitMode, _rotation, _singlePage);
+    public ViewState CaptureState() => new(CurrentPage, Zoom, FitMode, _rotation, _singlePage, _twoPage);
+
+    /// <summary>Pages side by side in pairs, 1 and 2, then 3 and 4, scrolling continuously.</summary>
+    public bool TwoPage => _twoPage;
+
+    public void SetTwoPage(bool twoPage)
+    {
+        if (twoPage == _twoPage) return;
+        int page = CurrentPage;
+        _twoPage = twoPage;
+        if (twoPage) _singlePage = false;
+        ResetViews();
+        ApplyZoom(FitMode == FitMode.Custom ? _zoom : ComputeFitZoom(), null, requestTiles: true);
+        GoToPage(page);
+        LayoutModeChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private double RasterScale => XamlRoot?.RasterizationScale ?? 1.0;
 
@@ -170,6 +187,7 @@ public sealed partial class PdfViewer : UserControl
         if (single == _singlePage) return;
         int page = CurrentPage;
         _singlePage = single;
+        if (single) _twoPage = false;
         ResetViews();
         ApplyZoom(FitMode == FitMode.Custom ? _zoom : ComputeFitZoom(), null, requestTiles: true);
         GoToPage(page);
@@ -256,6 +274,17 @@ public sealed partial class PdfViewer : UserControl
         const double k = 96.0 / 72.0;
         double vw = Math.Max(50, _scroller.ActualWidth - 2 * PageMargin);
         double vh = Math.Max(50, _scroller.ActualHeight - 2 * PageMargin);
+        if (_twoPage && PageCount > 0)
+        {
+            // Fit a pair: the gap between the two pages stays fixed in DIPs.
+            double rowWidth = Enumerable.Range(0, (PageCount + 1) / 2).Max(r => RowWidthPoints(r * 2));
+            double fitW = (vw - PageGap) / (rowWidth * k);
+            if (FitMode == FitMode.FitWidth) return Math.Clamp(fitW, MinZoom, MaxZoom);
+            int first = CurrentPage - CurrentPage % 2;
+            double rowHeight = Math.Max(ShownSize(first).Height, first + 1 < PageCount ? ShownSize(first + 1).Height : 0);
+            return Math.Clamp(Math.Min((vw - PageGap) / (RowWidthPoints(first) * k), vh / (rowHeight * k)), MinZoom, MaxZoom);
+        }
+
         double maxWidth = PageCount == 0 ? 612
             : _singlePage ? ShownSize(CurrentPage).Width
             : Enumerable.Range(0, PageCount).Max(i => ShownSize(i).Width);
@@ -265,6 +294,10 @@ public sealed partial class PdfViewer : UserControl
         var size = PageCount > 0 ? ShownSize(CurrentPage) : new PageSize(612, 792);
         return Math.Clamp(Math.Min(vw / (size.Width * k), vh / (size.Height * k)), MinZoom, MaxZoom);
     }
+
+    /// <summary>Width in points of the pair starting at <paramref name="first"/> (without the gap).</summary>
+    private double RowWidthPoints(int first) =>
+        ShownSize(first).Width + (first + 1 < PageCount ? ShownSize(first + 1).Width : 0);
 
     private Point TopCenterAnchor() => new(_scroller.ViewportWidth / 2, 0);
 
@@ -324,15 +357,42 @@ public sealed partial class PdfViewer : UserControl
             if (!_singlePage || i == CurrentPage) maxW = Math.Max(maxW, _w[i]);
         }
 
-        double contentW = Math.Max(_scroller.ActualWidth, maxW + 2 * PageMargin);
         double y = PageMargin;
-        for (int i = 0; i < n; i++)
+        double contentW;
+        if (_twoPage)
         {
-            // Snap to device pixels so tiles line up without seams.
-            _left[i] = Math.Round((contentW - _w[i]) / 2 * s) / s;
-            _top[i] = Math.Round(y * s) / s;
-            // Single page: every page sits in the same slot; only the current one is shown.
-            if (!_singlePage) y += _h[i] + PageGap;
+            // Pairs side by side, top-aligned: both pages of a row share one top.
+            double maxRow = 0;
+            for (int i = 0; i < n; i += 2)
+                maxRow = Math.Max(maxRow, _w[i] + (i + 1 < n ? PageGap + _w[i + 1] : 0));
+            contentW = Math.Max(_scroller.ActualWidth, maxRow + 2 * PageMargin);
+            for (int i = 0; i < n; i += 2)
+            {
+                bool pair = i + 1 < n;
+                double rowW = _w[i] + (pair ? PageGap + _w[i + 1] : 0);
+                double left = (contentW - rowW) / 2;
+                double top = Math.Round(y * s) / s;
+                _left[i] = Math.Round(left * s) / s;
+                _top[i] = top;
+                if (pair)
+                {
+                    _left[i + 1] = Math.Round((left + _w[i] + PageGap) * s) / s;
+                    _top[i + 1] = top;
+                }
+                y += Math.Max(_h[i], pair ? _h[i + 1] : 0) + PageGap;
+            }
+        }
+        else
+        {
+            contentW = Math.Max(_scroller.ActualWidth, maxW + 2 * PageMargin);
+            for (int i = 0; i < n; i++)
+            {
+                // Snap to device pixels so tiles line up without seams.
+                _left[i] = Math.Round((contentW - _w[i]) / 2 * s) / s;
+                _top[i] = Math.Round(y * s) / s;
+                // Single page: every page sits in the same slot; only the current one is shown.
+                if (!_singlePage) y += _h[i] + PageGap;
+            }
         }
         double contentH = _singlePage && n > 0
             ? Math.Max(_h[CurrentPage] + 2 * PageMargin, _scroller.ActualHeight)
@@ -364,11 +424,14 @@ public sealed partial class PdfViewer : UserControl
 
     private (int Page, double Fx, double Fy) ContentToPage(double cx, double cy)
     {
-        int p = PageAtY(cy);
+        int p = PageAtPoint(new Point(cx, cy));
         return (p, (cx - _left[p]) / _w[p], (cy - _top[p]) / _h[p]);
     }
 
-    /// <summary>Last page whose top is at or above <paramref name="y"/> (content DIPs).</summary>
+    /// <summary>
+    /// First page of the last row whose top is at or above <paramref name="y"/> (content DIPs).
+    /// In two-page view that's the left page of the row.
+    /// </summary>
     private int PageAtY(double y)
     {
         if (_singlePage) return CurrentPage;
@@ -379,7 +442,25 @@ public sealed partial class PdfViewer : UserControl
             if (_top[mid] <= y) { result = mid; lo = mid + 1; }
             else hi = mid - 1;
         }
+        while (result > 0 && _top[result - 1] == _top[result]) result--;
         return result;
+    }
+
+    /// <summary>The page under a point; in two-page view the right page when the point is right of the gap's middle.</summary>
+    private int PageAtPoint(Point p)
+    {
+        int page = PageAtY(p.Y);
+        if (_twoPage && page + 1 < PageCount && _top[page + 1] == _top[page] && p.X >= _left[page + 1] - PageGap / 2)
+            page++;
+        return page;
+    }
+
+    /// <summary>First page of the next row, or PageCount.</summary>
+    private int NextRowStart(int page)
+    {
+        int next = page + 1;
+        while (next < PageCount && _top[next] == _top[page]) next++;
+        return next;
     }
 
     // ---------------- Viewport & rendering ----------------
@@ -396,6 +477,7 @@ public sealed partial class PdfViewer : UserControl
                 _rotation = PageRotation.Normalize(state.Rotation);
                 _previews.Rotation = _rotation;
                 _singlePage = state.SinglePage;
+                _twoPage = state.TwoPage && !state.SinglePage;
                 FitMode = state.FitMode;
                 zoom = state.Zoom;
                 CurrentPage = Math.Clamp(state.Page, 0, PageCount - 1);
@@ -547,7 +629,11 @@ public sealed partial class PdfViewer : UserControl
             if (requestTiles && visible) EnsureTiles(view, viewport, WorkPriority.High);
             EnsurePreview(view, visible && !requestTiles ? WorkPriority.High : WorkPriority.Low);
             if (requestTiles) EnsureTiles(view, prefetch, WorkPriority.Low);
-            if (visible) EnsureText(i);
+            if (visible)
+            {
+                EnsureText(i);
+                EnsureLinks(i);
+            }
         }
 
         if (_singlePage) return; // the current page only changes by flipping
@@ -717,11 +803,12 @@ public sealed partial class PdfViewer : UserControl
     {
         text = null;
         if (!_laidOut || PageCount == 0) return null;
-        int page = PageAtY(p.Y);
-        // In the gap below a page, snap to the nearer page.
-        if (p.Y > _top[page] + _h[page] && page + 1 < PageCount &&
-            p.Y - (_top[page] + _h[page]) > _top[page + 1] - p.Y)
-            page++;
+        int page = PageAtPoint(p);
+        // In the gap below a row, snap to the nearer row.
+        int next = NextRowStart(page);
+        if (!_singlePage && p.Y > _top[page] + _h[page] && next < PageCount &&
+            p.Y - (_top[page] + _h[page]) > _top[next] - p.Y)
+            page = PageAtPoint(new Point(p.X, _top[next]));
         if (!_texts.TryGet(page, out text))
         {
             EnsureText(page);
@@ -736,9 +823,20 @@ public sealed partial class PdfViewer : UserControl
         if (e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch) return;
         if (HandleAutoScrollPress(e)) return;
         var point = e.GetCurrentPoint(_surface);
+        if (HandleHistoryButtons(point.Properties))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!point.Properties.IsLeftButtonPressed) return;
 
         _scroller.Focus(FocusState.Pointer);
+        bool shiftDown = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
+        if (!shiftDown && BeginLinkClick(point.Position))
+        {
+            e.Handled = true; // a click on a link follows it instead of starting a selection
+            return;
+        }
         var pos = HitTest(point.Position, out _);
         if (pos is null)
         {
@@ -768,19 +866,27 @@ public sealed partial class PdfViewer : UserControl
             return;
         }
 
+        if (LinkAt(point.Position) is not null)
+        {
+            ProtectedCursor = _handCursor;
+            _textCursorShown = false;
+            _overLink = true;
+            return;
+        }
         bool overText = false;
         if (_laidOut && PageCount > 0)
         {
-            int page = PageAtY(point.Position.Y);
+            int page = PageAtPoint(point.Position);
             if (_texts.TryGet(page, out var text))
             {
                 var (nx, ny) = ToPageCoords(page, point.Position);
                 overText = nx is >= 0 and <= 1 && ny is >= 0 and <= 1 && text.IsOverText(nx, ny);
             }
         }
-        if (overText != _textCursorShown)
+        if (overText != _textCursorShown || _overLink)
         {
             _textCursorShown = overText;
+            _overLink = false;
             ProtectedCursor = overText ? _textCursor : _arrowCursor;
         }
     }
@@ -797,6 +903,7 @@ public sealed partial class PdfViewer : UserControl
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (HandleAutoScrollRelease(e)) return;
+        if (EndLinkClick(e.GetCurrentPoint(_surface).Position)) return;
         if (!_selecting) return;
         _selecting = false;
         _surface.ReleasePointerCapture(e.Pointer);

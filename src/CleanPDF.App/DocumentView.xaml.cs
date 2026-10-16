@@ -168,7 +168,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
     private void Thumbnails_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncingThumbs || Thumbnails.SelectedIndex < 0) return;
-        Viewer.GoToPage(Thumbnails.SelectedIndex);
+        Viewer.NavigateTo(Thumbnails.SelectedIndex);
     }
 
     private void Thumbnails_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
@@ -238,15 +238,16 @@ public sealed partial class DocumentView : UserControl, IDisposable
             var (_, normY) = await Document.PageToNormalizedAsync(item.PageIndex, item.X ?? 0, y);
             ny = Math.Clamp(normY, 0, 1);
         }
-        Viewer.GoToPage(item.PageIndex, ny);
+        Viewer.NavigateTo(item.PageIndex, ny);
     }
 
     // ---------------- Search ----------------
 
-    public async Task SearchAsync(string query)
+    /// <param name="force">Search again even if the query is the same, e.g. after the search options change.</param>
+    public async Task SearchAsync(string query, bool force = false)
     {
         query = query.Trim();
-        if (query == SearchQuery) return;
+        if (query == SearchQuery && !force) return;
         EnsureSearchPanel();
 
         _searchCts?.Cancel();
@@ -278,7 +279,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
                 if (CurrentHitIndex < 0)
                     _ = GoToHitAsync(0);
                 SearchChanged?.Invoke(this, EventArgs.Empty);
-            }, cts.Token);
+            }, cts.Token, new SearchOptions(AppSettings.Current.SearchMatchCase, AppSettings.Current.SearchWholeWord));
             SearchStatus.Text = _results.Count switch
             {
                 0 => "No matches.",

@@ -27,6 +27,7 @@ internal static class HelpDialogs
             ("Ctrl+0", "Actual size"),
             ("Ctrl+8 / Ctrl+9", "Fit width / fit page"),
             ("Ctrl+G", "Go to page"),
+            ("Alt+← / Alt+→", "Back / forward after a jump; mouse side buttons too"),
             ("Ctrl+R / Ctrl+L", "Rotate clockwise / counter-clockwise"),
             ("F11", "Full screen (Esc to leave)"),
             ("← / →", "Previous / next page (single page view)"),

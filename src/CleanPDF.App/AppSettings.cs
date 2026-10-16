@@ -26,6 +26,13 @@ public sealed class AppSettings
 
     public static void RaiseChanged() => Changed?.Invoke(null, EventArgs.Empty);
 
+    /// <summary>Search options, set from the Aa button next to the search box.</summary>
+    public bool SearchMatchCase { get; set; }
+    public bool SearchWholeWord { get; set; }
+
+    /// <summary>Reopen each file at the page where it was closed.</summary>
+    public bool RememberLastPage { get; set; } = true;
+
     /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
     public double SidebarWidth { get; set; } = 220;
 
