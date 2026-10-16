@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.D, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; ShowProperties(); });
         AddAccelerator(VirtualKey.R, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(+1); });
         AddAccelerator(VirtualKey.L, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(-1); });
+        AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; Close(); });
         AddAccelerator(VirtualKey.F11, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; ToggleFullScreen(); });
         AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; CloseAllTabs(); });
         // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
@@ -118,6 +119,7 @@ public sealed partial class MainWindow : Window
             IconSource = new SymbolIconSource { Symbol = Symbol.Document },
         };
         ToolTipService.SetToolTip(tab, path);
+        tab.ContextFlyout = BuildTabMenu(tab);
         view.Visibility = Visibility.Collapsed;
         DocumentHost.Children.Add(view);
         // A collapsed TabView doesn't apply selection, so show it before adding the first tab.
@@ -173,9 +175,35 @@ public sealed partial class MainWindow : Window
         ShowInfo($"Reloaded {Path.GetFileName(path)}");
     }
 
+    private PrintService? _printService;
+    private bool _printServiceTried;
+
+    /// <summary>Prints with Windows' modern dialog (with preview); falls back to the classic dialog if that's unavailable.</summary>
     private async Task PrintAsync()
     {
         if (CurrentView is not { } view) return;
+        if (!_printServiceTried)
+        {
+            _printServiceTried = true;
+            _printService = PrintService.TryCreate(this);
+            if (_printService is not null)
+                _printService.Completed += (ok, message) =>
+                {
+                    if (ok) ShowInfo(message);
+                    else if (message.Length > 0) ShowError(message, "The printer reported an error.");
+                };
+        }
+        if (_printService is not null && await _printService.ShowAsync(view.Document))
+        {
+            StartupTrace.Mark("print_modern_dialog_shown");
+            return;
+        }
+        StartupTrace.Mark($"print_fallback_classic service={(_printService is null ? "unavailable" : "failed")}");
+        await PrintWithClassicDialogAsync(view);
+    }
+
+    private async Task PrintWithClassicDialogAsync(DocumentView view)
+    {
         var result = PrintDialog.Show(WinRT.Interop.WindowNative.GetWindowHandle(this), view.Document.PageCount, view.Viewer.CurrentPage);
         if (result is null) return;
         try
@@ -558,7 +586,7 @@ public sealed partial class MainWindow : Window
     {
         var view = CurrentView;
         bool hasDoc = view is not null;
-        foreach (var item in new MenuFlyoutItemBase[] { ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu })
+        foreach (var item in new MenuFlyoutItemBase[] { ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
             item.IsEnabled = hasDoc;
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
         FullScreenItem.IsChecked = _fullScreen;
@@ -599,16 +627,90 @@ public sealed partial class MainWindow : Window
 
     private void ShowInExplorer_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentView is { } view && File.Exists(view.Document.Path))
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{view.Document.Path}\"") { UseShellExecute = false });
+        if (CurrentView is { } view) ShowInExplorer(view.Document.Path);
     }
 
     private void CopyPath_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentView is not { } view) return;
+        if (CurrentView is { } view) CopyText(view.Document.Path);
+    }
+
+    private static void ShowInExplorer(string path)
+    {
+        if (File.Exists(path))
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = false });
+    }
+
+    private static void CopyText(string text)
+    {
         var package = new DataPackage();
-        package.SetText(view.Document.Path);
+        package.SetText(text);
         Clipboard.SetContent(package);
+    }
+
+    /// <summary>Windows' "Open with" picker for the file (to open it in another app).</summary>
+    private void OpenWithAnotherApp(string path)
+    {
+        var info = new OPENASINFO { pcszFile = path, oaifInFlags = 0x4 /* OAIF_EXEC */ };
+        SHOpenWithDialog(WinRT.Interop.WindowNative.GetWindowHandle(this), ref info);
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct OPENASINFO
+    {
+        public string pcszFile;
+        public string? pcszClass;
+        public int oaifInFlags;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHOpenWithDialog(IntPtr hwnd, ref OPENASINFO info);
+
+    // ---------------- Tab right-click menu ----------------
+
+    private MenuFlyout BuildTabMenu(TabViewItem tab)
+    {
+        var menu = new MenuFlyout();
+        string Path_() => (tab.Tag as DocumentView)?.Document.Path ?? "";
+        void Select() => Tabs.SelectedItem = tab;
+
+        MenuFlyoutItem Add(string text, Action action, string? keys = null, string? glyph = null)
+        {
+            var item = new MenuFlyoutItem { Text = text };
+            if (keys is not null) item.KeyboardAcceleratorTextOverride = keys;
+            if (glyph is not null) item.Icon = new FontIcon { Glyph = glyph };
+            item.Click += (s, args) => action();
+            menu.Items.Add(item);
+            return item;
+        }
+
+        Add("Close tab", () => CloseTab(tab), "Ctrl+W");
+        var closeOthers = Add("Close other tabs", () =>
+        {
+            foreach (var other in Tabs.TabItems.OfType<TabViewItem>().Where(t => t != tab).ToList()) CloseTab(other);
+        });
+        var closeRight = Add("Close tabs to the right", () =>
+        {
+            int index = Tabs.TabItems.IndexOf(tab);
+            foreach (var other in Tabs.TabItems.OfType<TabViewItem>().Skip(index + 1).ToList()) CloseTab(other);
+        });
+        Add("Close all tabs", CloseAllTabs, "Ctrl+Shift+W");
+        menu.Items.Add(new MenuFlyoutSeparator());
+        Add("Copy file name", () => CopyText(Path.GetFileName(Path_())), glyph: "");
+        Add("Copy file path", () => CopyText(Path_()));
+        Add("Show in File Explorer", () => ShowInExplorer(Path_()), glyph: "");
+        Add("Open with another app…", () => OpenWithAnotherApp(Path_()), glyph: "");
+        menu.Items.Add(new MenuFlyoutSeparator());
+        Add("Reload", () => { Select(); _ = ReloadAsync(); }, "F5", "");
+        Add("Print…", () => { Select(); _ = PrintAsync(); }, "Ctrl+P", "");
+        Add("Document properties…", () => { Select(); ShowProperties(); }, "Ctrl+D", "");
+
+        menu.Opening += (s, args) =>
+        {
+            closeOthers.IsEnabled = Tabs.TabItems.Count > 1;
+            closeRight.IsEnabled = Tabs.TabItems.IndexOf(tab) < Tabs.TabItems.Count - 1;
+        };
+        return menu;
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
@@ -719,6 +821,7 @@ public sealed partial class MainWindow : Window
                     Console.Out.WriteLine($"RELOADED page={CurrentView?.Viewer.CurrentPage + 1} zoom={CurrentView?.Viewer.Zoom:F2} rotation={CurrentView?.Viewer.ViewRotation}");
                 }
                 if (args.Contains("--properties")) { ShowProperties(); await Task.Delay(1000); }
+                if (args.Contains("--print-dialog")) { _ = PrintAsync(); await Task.Delay(6000); }
                 if (args.Contains("--settings-dialog")) { _ = OpenSettingsAsync(); await Task.Delay(800); }
                 if (Arg("--dialog") is { } dialog)
                 {
@@ -727,6 +830,11 @@ public sealed partial class MainWindow : Window
                     if (shown.IsFaulted) Console.Out.WriteLine($"DIALOG_ERROR {shown.Exception!.InnerException}");
                 }
                 if (args.Contains("--menu")) { MainMenu.ShowAt(MenuButton); await Task.Delay(500); }
+                if (args.Contains("--tab-menu") && Tabs.SelectedItem is TabViewItem selectedTab)
+                {
+                    selectedTab.ContextFlyout.ShowAt(selectedTab);
+                    await Task.Delay(500);
+                }
                 if (args.Contains("--autoscroll-test"))
                 {
                     // Anchor mid-page with the pointer 150 px below it; the icon stays up for the screenshot.

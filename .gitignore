@@ -491,3 +491,6 @@ publish/
 
 # Shareable build
 CleanPDF-*.zip
+
+# Scratch folder (screen recordings etc.)
+Temp/
