@@ -75,11 +75,17 @@ double RunAcrobat(string exe)
         Thread.Sleep(10);
     }
     double ms = sw.Elapsed.TotalMilliseconds;
-    foreach (var proc in Process.GetProcessesByName("Acrobat"))
-    {
-        proc.Kill(entireProcessTree: true);
-        proc.WaitForExit(10_000);
-    }
+
+    // Close Acrobat the way a user would. Force-killing it mid-startup makes it show
+    // error dialogs and crash-recovery prompts on later launches.
+    Thread.Sleep(3000); // let it finish loading before asking it to close
+    p.Refresh();
+    p.CloseMainWindow();
+    var deadline = DateTime.Now.AddSeconds(20);
+    while (Process.GetProcessesByName("Acrobat").Length > 0 && DateTime.Now < deadline)
+        Thread.Sleep(200);
+    if (Process.GetProcessesByName("Acrobat").Length > 0)
+        throw new InvalidOperationException("Acrobat did not close within 20 s; stopping so it isn't force-killed.");
     Thread.Sleep(2000); // let Acrobat's helper processes wind down
     return ms;
 }

@@ -12,6 +12,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Program.cs has its own Main (single-instance redirection). -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <!-- Unpackaged, self-contained Windows App SDK: runs as a plain .exe with no runtime install. -->
     <WindowsPackageType>None</WindowsPackageType>
@@ -24,10 +27,14 @@
     <!-- Startup speed: precompile IL so less JIT work at launch. -->
     <PublishReadyToRun>true</PublishReadyToRun>
     <SelfContained>true</SelfContained>
+    <!-- Drop unused framework code (mostly the 54 MB Windows SDK projection). -->
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
+    <!-- Only the WinUI part of the Windows App SDK. The Microsoft.WindowsAppSDK meta-package
+         also ships ONNX Runtime + DirectML (~38 MB) for its AI APIs, which we don't use. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260803003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.*" />
   </ItemGroup>
 
