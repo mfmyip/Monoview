@@ -54,9 +54,9 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.D, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; ShowProperties(); });
         AddAccelerator(VirtualKey.R, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(+1); });
         AddAccelerator(VirtualKey.L, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(-1); });
-        AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; Close(); });
+        AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = ExitAsync(); });
         AddAccelerator(VirtualKey.F11, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; ToggleFullScreen(); });
-        AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; CloseAllTabs(); });
+        AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; _ = CloseAllTabsAsync(); });
         // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
         AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, (sender, e) => { if (_fullScreen) { e.Handled = true; SetFullScreen(false); } });
         AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
@@ -70,10 +70,19 @@ public sealed partial class MainWindow : Window
                 view.Dispose();
             }
         };
+        // The window's X: ask about unsaved changes first.
+        AppWindow.Closing += async (_, e) =>
+        {
+            if (_exitConfirmed || !DocumentViews().Any(v => v.Document.IsModified)) return;
+            e.Cancel = true;
+            await ExitAsync();
+        };
+        AddAccelerator(VirtualKey.H, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; HighlightCommand(); });
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoBack(); });
         AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoForward(); });
 
         UpdateToolbar();
+        UpdateHighlightSwatch();
     }
 
     /// <summary>Shows the start page (open button and recent files) when no document is open.</summary>
@@ -259,13 +268,98 @@ public sealed partial class MainWindow : Window
             foreach (var other in DocumentViews())
                 if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
         };
+        view.Viewer.HighlighterMode = _highlighterMode;
+        // A dot before the file name marks unsaved changes, as in most editors.
+        view.Viewer.PagesEdited += (_, _) =>
+        {
+            if (Tabs.TabItems.OfType<TabViewItem>().FirstOrDefault(t => ReferenceEquals(t.Tag, view)) is { } tab)
+                tab.Header = $"• {Path.GetFileName(view.Document.Path)}";
+        };
         return view;
+    }
+
+    // ---------------- Highlighter ----------------
+
+    private bool _highlighterMode;
+    private bool _syncingHighlighter;
+
+    /// <summary>Ctrl+H and the highlighter button: mark the selection, or turn highlighter mode on or off.</summary>
+    private void HighlightCommand()
+    {
+        if (CurrentView is not { } view) return;
+        if (view.Viewer.HasSelection)
+            _ = view.Viewer.MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
+        else
+            SetHighlighterMode(!_highlighterMode);
+    }
+
+    private void SetHighlighterMode(bool on)
+    {
+        _highlighterMode = on;
+        foreach (var view in DocumentViews())
+            view.Viewer.HighlighterMode = on;
+        _syncingHighlighter = true;
+        HighlightButton.IsChecked = on;
+        _syncingHighlighter = false;
+        if (on) ShowInfo("Highlighter on: select text to mark it. Click the button again to stop.");
+    }
+
+    private void HighlightButton_IsCheckedChanged(ToggleSplitButton sender, ToggleSplitButtonIsCheckedChangedEventArgs args)
+    {
+        if (_syncingHighlighter) return;
+        HighlightCommand();
+        // With a selection the click marked it; keep the button showing the mode, not the click.
+        _syncingHighlighter = true;
+        sender.IsChecked = _highlighterMode;
+        _syncingHighlighter = false;
+    }
+
+    private void HighlightMenu_Opening(object? sender, object e)
+    {
+        HighlightMenu.Items.Clear();
+        var kinds = new (string Text, MarkupKind Kind)[]
+        {
+            ("Highlight", MarkupKind.Highlight), ("Underline", MarkupKind.Underline), ("Strikethrough", MarkupKind.StrikeOut),
+        };
+        foreach (var (text, kind) in kinds)
+        {
+            var item = new RadioMenuFlyoutItem { Text = text, GroupName = "kind", IsChecked = MarkupPalette.CurrentKind == kind };
+            item.Click += (s, args) => { AppSettings.Current.MarkupKind = kind.ToString(); AppSettings.Save(); };
+            HighlightMenu.Items.Add(item);
+        }
+        HighlightMenu.Items.Add(new MenuFlyoutSeparator());
+        foreach (var (name, color) in MarkupPalette.Colors)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = name,
+                GroupName = "color",
+                IsChecked = AppSettings.Current.MarkupColor == name,
+                Icon = new FontIcon { Glyph = "", Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, color.R, color.G, color.B)) },
+            };
+            item.Click += (s, args) =>
+            {
+                AppSettings.Current.MarkupColor = name;
+                AppSettings.Save();
+                UpdateHighlightSwatch();
+            };
+            HighlightMenu.Items.Add(item);
+        }
+    }
+
+    private void UpdateHighlightSwatch()
+    {
+        var c = MarkupPalette.Current;
+        HighlightSwatch.Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
     }
 
     /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>
     private async Task ReloadAsync()
     {
         if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView old) return;
+        if (old.Document.IsModified && !await ConfirmAsync("Discard changes and reload?",
+                "The file is reopened from disk and your unsaved changes are lost.", "Reload"))
+            return;
         if (await ReopenAsync(tab, old, old.Document.Path))
             ShowInfo($"Reloaded {Path.GetFileName(old.Document.Path)}");
     }
@@ -304,6 +398,7 @@ public sealed partial class MainWindow : Window
     private async Task SaveAsync(string? target = null)
     {
         if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView view) return;
+        if (target is null && !view.Document.IsModified) return; // nothing to save
         string source = view.Document.Path;
         target = Path.GetFullPath(target ?? source);
         string temp = Path.Combine(Path.GetDirectoryName(target)!, $"~{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
@@ -411,10 +506,89 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void CloseAllTabs()
+    /// <summary>Closes the tabs one by one, asking about unsaved changes; stops at the first Cancel.</summary>
+    private async Task<bool> CloseTabsAsync(IEnumerable<TabViewItem> tabs)
     {
-        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>().ToList())
-            CloseTab(tab);
+        foreach (var tab in tabs.ToList())
+            if (!await CloseTabAsync(tab))
+                return false;
+        return true;
+    }
+
+    private Task<bool> CloseAllTabsAsync() => CloseTabsAsync(Tabs.TabItems.OfType<TabViewItem>());
+
+    /// <summary>Closes the window after asking about unsaved changes (Exit, Ctrl+Q, the window's X).</summary>
+    private async Task ExitAsync()
+    {
+        if (!await CloseAllTabsAsync()) return;
+        _exitConfirmed = true;
+        Close();
+    }
+
+    private bool _exitConfirmed;
+
+    /// <summary>For a tab with unsaved changes: Save, Don't save or Cancel. Returns false on Cancel.</summary>
+    private async Task<bool> ConfirmDiscardAsync(TabViewItem tab)
+    {
+        if (tab.Tag is not DocumentView view || !view.Document.IsModified) return true;
+        if (_dialogOpen || Root.XamlRoot is null) return false;
+        Tabs.SelectedItem = tab;
+        string name = Path.GetFileName(view.Document.Path);
+        _dialogOpen = true;
+        ContentDialogResult answer;
+        try
+        {
+            answer = await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = $"Save changes to {name}?",
+                Content = "Your changes will be lost if you don't save them.",
+                PrimaryButtonText = "Save",
+                SecondaryButtonText = "Don't save",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                RequestedTheme = Root.ActualTheme,
+            }.ShowAsync();
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
+        if (answer == ContentDialogResult.None) return false;
+        if (answer == ContentDialogResult.Secondary) return true;
+        await SaveAsync();
+        // Save replaces the tab's document; if it failed, the changes are still there.
+        return tab.Tag is DocumentView saved && !saved.Document.IsModified;
+    }
+
+    private async Task<bool> ConfirmAsync(string title, string message, string action)
+    {
+        if (_dialogOpen || Root.XamlRoot is null) return false;
+        _dialogOpen = true;
+        try
+        {
+            return await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = title,
+                Content = message,
+                PrimaryButtonText = action,
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                RequestedTheme = Root.ActualTheme,
+            }.ShowAsync() == ContentDialogResult.Primary;
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
+    }
+
+    private async Task<bool> CloseTabAsync(TabViewItem tab)
+    {
+        if (!await ConfirmDiscardAsync(tab)) return false;
+        CloseTab(tab);
+        return true;
     }
 
     // ---------------- Full screen ----------------
@@ -472,7 +646,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void Tabs_AddTabButtonClick(TabView sender, object args) => _ = PickAndOpenAsync();
-    private void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args) => CloseTab(args.Tab);
+    private void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args) => _ = CloseTabAsync(args.Tab);
 
     private void Open_Click(object sender, RoutedEventArgs e) => _ = PickAndOpenAsync();
 
@@ -665,7 +839,7 @@ public sealed partial class MainWindow : Window
     private void Accel_CloseTab(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e)
     {
         e.Handled = true;
-        if (Tabs.SelectedItem is TabViewItem tab) CloseTab(tab);
+        if (Tabs.SelectedItem is TabViewItem tab) _ = CloseTabAsync(tab);
         else Close();
     }
 
@@ -773,8 +947,9 @@ public sealed partial class MainWindow : Window
     {
         var view = CurrentView;
         bool hasDoc = view is not null;
-        foreach (var item in new MenuFlyoutItemBase[] { SaveItem, SaveAsItem, ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
+        foreach (var item in new MenuFlyoutItemBase[] { SaveAsItem, ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
             item.IsEnabled = hasDoc;
+        SaveItem.IsEnabled = view?.Document.IsModified ?? false;
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
         TwoPageItem.IsChecked = view?.Viewer.TwoPage ?? false;
         BackItem.IsEnabled = view?.Viewer.CanGoBack ?? false;
@@ -800,7 +975,7 @@ public sealed partial class MainWindow : Window
     private void SaveAs_Click(object sender, RoutedEventArgs e) => _ = SaveAsAsync();
     private void Print_Click(object sender, RoutedEventArgs e) => _ = PrintAsync();
     private void Properties_Click(object sender, RoutedEventArgs e) => ShowProperties();
-    private void CloseAll_Click(object sender, RoutedEventArgs e) => CloseAllTabs();
+    private void CloseAll_Click(object sender, RoutedEventArgs e) => _ = CloseAllTabsAsync();
     private void RotateRight_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(+1);
     private void RotateLeft_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(-1);
     private void SinglePage_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.SetSinglePage(SinglePageItem.IsChecked);
@@ -832,7 +1007,7 @@ public sealed partial class MainWindow : Window
 
     private void CloseTab_Click(object sender, RoutedEventArgs e)
     {
-        if (Tabs.SelectedItem is TabViewItem tab) CloseTab(tab);
+        if (Tabs.SelectedItem is TabViewItem tab) _ = CloseTabAsync(tab);
     }
 
     private void ShowInExplorer_Click(object sender, RoutedEventArgs e)
@@ -894,17 +1069,17 @@ public sealed partial class MainWindow : Window
             return item;
         }
 
-        Add("Close tab", () => CloseTab(tab), "Ctrl+W");
+        Add("Close tab", () => _ = CloseTabAsync(tab), "Ctrl+W");
         var closeOthers = Add("Close other tabs", () =>
         {
-            foreach (var other in Tabs.TabItems.OfType<TabViewItem>().Where(t => t != tab).ToList()) CloseTab(other);
+            _ = CloseTabsAsync(Tabs.TabItems.OfType<TabViewItem>().Where(t => t != tab));
         });
         var closeRight = Add("Close tabs to the right", () =>
         {
             int index = Tabs.TabItems.IndexOf(tab);
-            foreach (var other in Tabs.TabItems.OfType<TabViewItem>().Skip(index + 1).ToList()) CloseTab(other);
+            _ = CloseTabsAsync(Tabs.TabItems.OfType<TabViewItem>().Skip(index + 1));
         });
-        Add("Close all tabs", CloseAllTabs, "Ctrl+Shift+W");
+        Add("Close all tabs", () => _ = CloseAllTabsAsync(), "Ctrl+Shift+W");
         menu.Items.Add(new MenuFlyoutSeparator());
         Add("Copy file name", () => CopyText(Path.GetFileName(Path_())), glyph: "");
         Add("Copy file path", () => CopyText(Path_()));
@@ -923,7 +1098,7 @@ public sealed partial class MainWindow : Window
         return menu;
     }
 
-    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+    private void Exit_Click(object sender, RoutedEventArgs e) => _ = ExitAsync();
 
     private void GoToPage_Click(object sender, RoutedEventArgs e) => FocusPageBox();
 
@@ -1025,6 +1200,14 @@ public sealed partial class MainWindow : Window
                 if (Arg("--rotate") is { } turns) { doc.Viewer.Rotate(int.Parse(turns)); await Task.Delay(800); }
                 if (args.Contains("--single-page")) { doc.Viewer.SetSinglePage(true); await Task.Delay(300); }
                 if (args.Contains("--two-page")) { doc.Viewer.SetTwoPage(true); await Task.Delay(800); }
+                if (args.Contains("--highlight-test"))
+                {
+                    // Select the first words of page 1 and highlight them, as a user would with Ctrl+H.
+                    await doc.Viewer.SelectAllAsync();
+                    await doc.Viewer.MarkSelectionAsync(MarkupKind.Highlight, MarkupPalette.Current);
+                    await Task.Delay(1500);
+                    Console.Out.WriteLine($"HIGHLIGHT modified={doc.Document.IsModified} tab={(Tabs.SelectedItem as TabViewItem)?.Header}");
+                }
                 if (args.Contains("--save")) { await SaveAsync(); await Task.Delay(800); }
                 if (Arg("--save-to") is { } saveTo) { await SaveAsync(saveTo); await Task.Delay(800); }
                 if (args.Contains("--save") || Arg("--save-to") is not null)

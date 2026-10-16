@@ -30,6 +30,10 @@ public sealed class AppSettings
     public bool SearchMatchCase { get; set; }
     public bool SearchWholeWord { get; set; }
 
+    /// <summary>Markup style and color from the highlighter button: "Highlight", "Underline" or "StrikeOut"; a palette color name.</summary>
+    public string MarkupKind { get; set; } = "Highlight";
+    public string MarkupColor { get; set; } = "Yellow";
+
     /// <summary>Reopen each file at the page where it was closed.</summary>
     public bool RememberLastPage { get; set; } = true;
 

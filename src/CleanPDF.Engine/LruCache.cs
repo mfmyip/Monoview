@@ -39,6 +39,19 @@ public sealed class LruCache<TKey, TValue>(int capacity, Action<TValue>? onEvict
         }
     }
 
+    public void Remove(TKey key)
+    {
+        if (!_map.Remove(key, out var node)) return;
+        _order.Remove(node);
+        onEvict?.Invoke(node.Value.Value);
+    }
+
+    public void RemoveWhere(Func<TKey, bool> match)
+    {
+        foreach (var key in _map.Keys.Where(match).ToList())
+            Remove(key);
+    }
+
     public void Clear()
     {
         foreach (var (_, value) in _order)

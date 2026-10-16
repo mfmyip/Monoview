@@ -35,6 +35,14 @@ internal readonly record struct PageTransform(double A, double B, double C, doub
 {
     public (double X, double Y) Apply(double x, double y) => (A * x + C * y + E, B * x + D * y + F);
 
+    /// <summary>Normalized display coordinates back to PDF user space.</summary>
+    public (double X, double Y) Invert(double x, double y)
+    {
+        double det = A * D - B * C;
+        double dx = x - E, dy = y - F;
+        return ((D * dx - C * dy) / det, (A * dy - B * dx) / det);
+    }
+
     public NormRect ApplyToBox(double left, double bottom, double right, double top)
     {
         var (x0, y0) = Apply(left, bottom);

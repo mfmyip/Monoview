@@ -233,6 +233,20 @@
                         <FontIcon Glyph="&#xE8A3;" FontSize="16" />
                     </Button>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
+                    <!-- Highlighter: click marks the selection, or turns highlighter mode on; the arrow picks style and color. -->
+                    <ToggleSplitButton x:Name="HighlightButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0"
+                                       CornerRadius="4" IsCheckedChanged="HighlightButton_IsCheckedChanged"
+                                       ToolTipService.ToolTip="Highlight (Ctrl+H). With no text selected, turns highlighter mode on or off."
+                                       AutomationProperties.Name="Highlight">
+                        <Grid Width="18" Height="20">
+                            <FontIcon Glyph="&#xE7E6;" FontSize="16" VerticalAlignment="Top" />
+                            <Rectangle x:Name="HighlightSwatch" Height="3" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1" Fill="#FFE600" />
+                        </Grid>
+                        <ToggleSplitButton.Flyout>
+                            <MenuFlyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
+                        </ToggleSplitButton.Flyout>
+                    </ToggleSplitButton>
+                    <Rectangle Style="{StaticResource ToolSeparator}" />
                     <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
                              AutomationProperties.Name="Page number"
                              KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />

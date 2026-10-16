@@ -41,6 +41,7 @@ internal static class HelpDialogs
             ("Esc", "Clear the search"),
             ("Double-click", "Select a word"),
             ("Ctrl+A / Ctrl+C", "Select all / copy text"),
+            ("Ctrl+H", "Highlight the selection; with nothing selected, turn highlighter mode on or off"),
         ]),
     ];
 

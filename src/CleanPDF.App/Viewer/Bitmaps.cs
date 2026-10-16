@@ -45,6 +45,16 @@ public sealed class PreviewCache(PdfDocument doc)
 
     public event EventHandler? RotationChanged;
 
+    /// <summary>The page changed; render its preview again next time.</summary>
+    public void Invalidate(int page)
+    {
+        _cache.Remove(page);
+        _inFlight.Remove(page);
+        PageInvalidated?.Invoke(this, page);
+    }
+
+    public event EventHandler<int>? PageInvalidated;
+
     public bool TryGet(int page, out WriteableBitmap bitmap) => _cache.TryGet(page, out bitmap);
 
     public Task<WriteableBitmap?> GetAsync(int page, WorkPriority priority)

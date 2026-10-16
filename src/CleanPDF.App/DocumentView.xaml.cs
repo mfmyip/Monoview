@@ -38,6 +38,15 @@ public sealed partial class DocumentView : UserControl, IDisposable
         ViewerHost.Child = Viewer;
 
         BuildThumbnails();
+        // A page with new markup gets a fresh thumbnail.
+        _previews.PageInvalidated += (_, page) =>
+        {
+            if (page < _thumbs.Count && _thumbs[page].Image is not null)
+            {
+                _thumbs[page].Image = null;
+                _ = LoadThumbnailAsync(_thumbs[page]);
+            }
+        };
         // Rotating the view rotates the thumbnails too.
         _previews.RotationChanged += (_, _) =>
         {

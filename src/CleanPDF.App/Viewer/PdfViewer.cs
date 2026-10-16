@@ -633,6 +633,7 @@ public sealed partial class PdfViewer : UserControl
             {
                 EnsureText(i);
                 EnsureLinks(i);
+                EnsureMarkups(i);
             }
         }
 
@@ -837,6 +838,7 @@ public sealed partial class PdfViewer : UserControl
             e.Handled = true; // a click on a link follows it instead of starting a selection
             return;
         }
+        _pressedMarkup = shiftDown ? null : MarkupAt(point.Position);
         var pos = HitTest(point.Position, out _);
         if (pos is null)
         {
@@ -907,7 +909,19 @@ public sealed partial class PdfViewer : UserControl
         if (!_selecting) return;
         _selecting = false;
         _surface.ReleasePointerCapture(e.Pointer);
-        if (_anchor == _focus) ClearSelection();
+        var pressedMarkup = _pressedMarkup;
+        _pressedMarkup = null;
+        if (_anchor == _focus)
+        {
+            ClearSelection();
+            var at = e.GetCurrentPoint(_surface).Position;
+            if (pressedMarkup is not null && MarkupAt(at) == pressedMarkup)
+                ShowMarkupMenu(pressedMarkup, at);
+        }
+        else if (HighlighterMode)
+        {
+            _ = MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
+        }
     }
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -969,6 +983,8 @@ public sealed partial class PdfViewer : UserControl
         menu.Items.Add(copy);
         menu.Items.Add(selectAll);
         menu.Opening += (_, _) => copy.IsEnabled = HasSelection;
+        menu.Items.Add(new MenuFlyoutSeparator());
+        AddMarkupItems(menu, () => HasSelection);
         return menu;
     }
 
