@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using CleanPDF.App.Viewer;
 using CleanPDF.Engine;
@@ -395,7 +395,7 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = Root.XamlRoot,
-            Title = "Add CleanPDF to â€œOpen withâ€?",
+            Title = "Add CleanPDF to “Open with”?",
             Content = "CleanPDF will register itself for PDF files for your Windows account (no admin needed). " +
                       "To make it the default, choose it in Settings > Apps > Default apps afterwards.\n\n" +
                       $"Registered program: {Environment.ProcessPath}",
@@ -411,7 +411,7 @@ public sealed partial class MainWindow : Window
         {
             XamlRoot = Root.XamlRoot,
             Title = "CleanPDF added",
-            Content = "It now appears under â€œOpen withâ€ for PDF files. Open Default apps to make it the default?",
+            Content = "It now appears under “Open with” for PDF files. Open Default apps to make it the default?",
             PrimaryButtonText = "Open Default apps",
             CloseButtonText = "Not now",
         };
@@ -440,7 +440,7 @@ public sealed partial class MainWindow : Window
         SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
 
-    private void ReportBenchmarkAndExit()
+    internal void ReportBenchmarkAndExit()
     {
         // Wait one frame so the page has actually been composed on screen.
         Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnRendered;

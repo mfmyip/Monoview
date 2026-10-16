@@ -1,4 +1,4 @@
-﻿<Window
+<Window
     x:Class="CleanPDF.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -9,7 +9,7 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid x:Name="Root" AllowDrop="True" DragOver="Root_DragOver" Drop="Root_Drop">
+    <Grid x:Name="Root" AllowDrop="True" KeyboardAcceleratorPlacementMode="Hidden" DragOver="Root_DragOver" Drop="Root_Drop">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -95,12 +95,12 @@
                 </AppBarElementContainer>
 
                 <CommandBar.SecondaryCommands>
-                    <AppBarButton x:Name="RegisterButton" Label="Add CleanPDF to â€œOpen withâ€â€¦" Click="Register_Click">
+                    <AppBarButton x:Name="RegisterButton" Label="Add CleanPDF to “Open with”…" Click="Register_Click">
                         <AppBarButton.Icon>
                             <FontIcon Glyph="&#xE7AC;" />
                         </AppBarButton.Icon>
                     </AppBarButton>
-                    <AppBarButton x:Name="UnregisterButton" Label="Remove CleanPDF from â€œOpen withâ€" Click="Unregister_Click" />
+                    <AppBarButton x:Name="UnregisterButton" Label="Remove CleanPDF from “Open with”" Click="Unregister_Click" />
                 </CommandBar.SecondaryCommands>
             </CommandBar>
 
@@ -130,7 +130,7 @@
                     <Button Style="{StaticResource AccentButtonStyle}" Click="Open_Click" Padding="16,8">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <SymbolIcon Symbol="OpenFile" />
-                            <TextBlock Text="Open PDFâ€¦" />
+                            <TextBlock Text="Open PDF…" />
                         </StackPanel>
                     </Button>
                     <TextBlock x:Name="RecentHeader" Text="Recent" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,24,0,0" />

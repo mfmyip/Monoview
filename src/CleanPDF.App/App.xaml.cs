@@ -56,7 +56,10 @@ public partial class App : Application
         foreach (var (path, task) in opening)
             _ = _window.OpenFileAsync(path, task);
         if (opening.Count == 0)
+        {
             _window.ShowStartPage(true);
+            if (_benchmark) _window.ReportBenchmarkAndExit(); // lets --screenshot capture the start page
+        }
 
         if (!_benchmark)
         {
