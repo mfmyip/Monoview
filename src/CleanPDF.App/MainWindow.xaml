@@ -111,12 +111,29 @@
                             </MenuFlyoutSubItem>
                             <MenuFlyoutSeparator />
 
+                            <MenuFlyoutItem x:Name="UndoItem" Text="Undo" Click="Undo_Click" KeyboardAcceleratorTextOverride="Ctrl+Z">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="RedoItem" Text="Redo" Click="Redo_Click" KeyboardAcceleratorTextOverride="Ctrl+Y">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                             <MenuFlyoutItem x:Name="CopyItem" Text="Copy" Click="Copy_Click" KeyboardAcceleratorTextOverride="Ctrl+C">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutItem x:Name="SelectAllItem" Text="Select all" Click="SelectAll_Click" KeyboardAcceleratorTextOverride="Ctrl+A" />
                             <MenuFlyoutSeparator />
 
+                            <MenuFlyoutSubItem x:Name="PagesMenu" Text="Pages">
+                                <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE7C3;" /></MenuFlyoutSubItem.Icon>
+                                <ToggleMenuFlyoutItem x:Name="EditPagesMenuItem" Text="Edit pages in the sidebar" Click="EditPagesMenu_Click" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Rotate left" Tag="RotateLeft" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Rotate right" Tag="RotateRight" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Delete" Tag="Delete" Click="PagesMenu_Click" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Insert pages from file…" Tag="InsertFromFile" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Extract pages to a new PDF…" Tag="Extract" Click="PagesMenu_Click" />
+                            </MenuFlyoutSubItem>
                             <MenuFlyoutSubItem x:Name="ViewMenu" Text="View">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE890;" /></MenuFlyoutSubItem.Icon>
                                 <MenuFlyoutItem x:Name="SidebarItem" Text="Hide sidebar" Click="SidebarButton_Click" KeyboardAcceleratorTextOverride="Ctrl+B" />

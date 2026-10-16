@@ -32,6 +32,9 @@ public sealed partial class PdfViewer
     /// <summary>When on, every text selection becomes a markup as soon as the mouse is released.</summary>
     public bool HighlighterMode { get; set; }
 
+    /// <summary>Called before each markup change, so the window can keep an undo step.</summary>
+    public Func<Task>? BeforeEdit { get; set; }
+
     /// <summary>Pages changed (markup added, recolored or removed). The document now has unsaved changes.</summary>
     public event EventHandler<IReadOnlyList<int>>? PagesEdited;
 
@@ -40,6 +43,7 @@ public sealed partial class PdfViewer
     {
         if (!HasSelection) return;
         var (start, end) = OrderedSelection();
+        if (BeforeEdit is not null) await BeforeEdit();
         var edited = new List<int>();
         for (int page = start.Page; page <= end.Page; page++)
         {
@@ -58,14 +62,23 @@ public sealed partial class PdfViewer
 
     private async Task RecolorAsync(Markup markup, MarkupColor color)
     {
+        if (BeforeEdit is not null) await BeforeEdit();
         await _doc.SetMarkupColorAsync(markup, color);
         AfterEdit([markup.PageIndex]);
     }
 
     private async Task RemoveAsync(Markup markup)
     {
+        if (BeforeEdit is not null) await BeforeEdit();
         await _doc.RemoveMarkupAsync(markup);
         AfterEdit([markup.PageIndex]);
+    }
+
+    /// <summary>Stops timers and autoscroll before the view is thrown away.</summary>
+    public void Close()
+    {
+        _settleTimer.Stop();
+        StopAutoScroll();
     }
 
     private void AfterEdit(IReadOnlyList<int> pages)

@@ -16,6 +16,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
     private readonly ObservableCollection<ThumbnailItem> _thumbs = new();
     private readonly ObservableCollection<SearchResultItem> _results = new();
     private CancellationTokenSource? _searchCts;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _thumbnailFallback;
     private bool _syncingThumbs;
     private bool _outlineLoaded;
 
@@ -56,11 +57,11 @@ public sealed partial class DocumentView : UserControl, IDisposable
         // Fill the thumbnail list once the first page is sharp (or after a second, if rendering
         // fails), so it doesn't slow the first paint.
         Viewer.FirstPageRendered += (_, _) => ShowThumbnails();
-        var fallback = DispatcherQueue.CreateTimer();
-        fallback.Interval = TimeSpan.FromSeconds(1);
-        fallback.IsRepeating = false;
-        fallback.Tick += (_, _) => ShowThumbnails();
-        fallback.Start();
+        _thumbnailFallback = DispatcherQueue.CreateTimer();
+        _thumbnailFallback.Interval = TimeSpan.FromSeconds(1);
+        _thumbnailFallback.IsRepeating = false;
+        _thumbnailFallback.Tick += (_, _) => ShowThumbnails();
+        _thumbnailFallback.Start();
 
         Viewer.CurrentPageChanged += (_, _) => SyncThumbnailSelection();
         Loaded += (_, _) => SyncThumbnailSelection();
@@ -152,10 +153,25 @@ public sealed partial class DocumentView : UserControl, IDisposable
     {
         if (Thumbnails.ItemsSource is not null) return;
         Thumbnails.ItemsSource = _thumbs;
-        SyncThumbnailSelection();
+        if (SelectAfterLoad is { Count: > 0 } pages)
+        {
+            // After a page operation, keep the moved or rotated pages selected.
+            _syncingThumbs = true;
+            foreach (int page in pages.Where(p => p < _thumbs.Count))
+                Thumbnails.SelectedItems.Add(_thumbs[page]);
+            _syncingThumbs = false;
+            Thumbnails.ScrollIntoView(_thumbs[Math.Min(pages[0], _thumbs.Count - 1)]);
+        }
+        else
+        {
+            SyncThumbnailSelection();
+        }
     }
 
-    /// <summary>Dev aid for screenshots: "pages", "outline" or "search".</summary>
+    /// <summary>Pages to select in the sidebar once it's filled (set by the window after a page operation).</summary>
+    public IReadOnlyList<int>? SelectAfterLoad { get; set; }
+
+    /// <summary>Shows a sidebar tab: "pages", "outline" or "search".</summary>
     public void SelectSidebarTab(string name) => SidebarTabs.SelectedItem = name switch
     {
         "outline" => OutlineTab,
@@ -166,18 +182,21 @@ public sealed partial class DocumentView : UserControl, IDisposable
     private void SyncThumbnailSelection()
     {
         int page = Viewer.CurrentPage;
+        // Several selected pages are the user's choice for a page operation; scrolling shouldn't undo it.
+        if (Thumbnails.SelectedItems.Count > 1) return;
         if (page < 0 || page >= _thumbs.Count || Thumbnails.SelectedIndex == page) return;
         _syncingThumbs = true;
         Thumbnails.SelectedIndex = page;
         _syncingThumbs = false;
-        if (IsSidebarVisible && Thumbnails.Visibility == Visibility.Visible)
+        if (IsSidebarVisible && PagesPanel.Visibility == Visibility.Visible)
             Thumbnails.ScrollIntoView(_thumbs[page]);
     }
 
     private void Thumbnails_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_syncingThumbs || Thumbnails.SelectedIndex < 0) return;
-        Viewer.NavigateTo(Thumbnails.SelectedIndex);
+        // Only a single selection jumps; Ctrl or Shift-clicking more pages just selects them.
+        if (_syncingThumbs || Thumbnails.SelectedItems.Count != 1 || Thumbnails.SelectedItem is not ThumbnailItem item) return;
+        Viewer.NavigateTo(item.Index);
     }
 
     private void Thumbnails_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
@@ -208,7 +227,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
         if (tab == OutlineTab && OutlinePanel is null) FindName(nameof(OutlinePanel));
         if (tab == SearchTab) EnsureSearchPanel();
 
-        Thumbnails.Visibility = tab == ThumbnailsTab ? Visibility.Visible : Visibility.Collapsed;
+        PagesPanel.Visibility = tab == ThumbnailsTab ? Visibility.Visible : Visibility.Collapsed;
         if (OutlinePanel is not null) OutlinePanel.Visibility = tab == OutlineTab ? Visibility.Visible : Visibility.Collapsed;
         if (SearchPanel is not null) SearchPanel.Visibility = tab == SearchTab ? Visibility.Visible : Visibility.Collapsed;
         if (tab == OutlineTab && !_outlineLoaded)
@@ -324,9 +343,15 @@ public sealed partial class DocumentView : UserControl, IDisposable
             _ = GoToHitAsync(_results.IndexOf(item));
     }
 
-    public void Dispose()
+    public void Dispose() => Close(closeDocument: true);
+
+    /// <param name="closeDocument">False when the document lives on in a new view (after a page operation).</param>
+    public void Close(bool closeDocument)
     {
+        // A timer firing on a closed view during shutdown crashes the app, so stop them all.
+        _thumbnailFallback.Stop();
+        Viewer.Close();
         _searchCts?.Cancel();
-        Document.Dispose();
+        if (closeDocument) Document.Dispose();
     }
 }

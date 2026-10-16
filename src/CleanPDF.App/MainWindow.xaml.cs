@@ -64,6 +64,8 @@ public sealed partial class MainWindow : Window
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
         Closed += (_, _) =>
         {
+            _infoTimer?.Stop();
+            _searchDebounce.Stop();
             foreach (var view in DocumentViews().ToList())
             {
                 SaveReadingPosition(view);
@@ -78,6 +80,10 @@ public sealed partial class MainWindow : Window
             await ExitAsync();
         };
         AddAccelerator(VirtualKey.H, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; HighlightCommand(); });
+        // Undo/redo; in a text box they stay the text box's own.
+        AddAccelerator(VirtualKey.Z, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: false); } });
+        AddAccelerator(VirtualKey.Y, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: true); } });
+        AddAccelerator(VirtualKey.Z, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: true); } });
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoBack(); });
         AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoForward(); });
 
@@ -272,9 +278,12 @@ public sealed partial class MainWindow : Window
         // A dot before the file name marks unsaved changes, as in most editors.
         view.Viewer.PagesEdited += (_, _) =>
         {
-            if (Tabs.TabItems.OfType<TabViewItem>().FirstOrDefault(t => ReferenceEquals(t.Tag, view)) is { } tab)
-                tab.Header = $"• {Path.GetFileName(view.Document.Path)}";
+            if (TabOf(view) is { } tab) UpdateTabHeader(tab);
         };
+        view.Viewer.BeforeEdit = () => TabOf(view) is { } tab ? HistoryFor(tab).CheckpointAsync(view.Document) : Task.CompletedTask;
+        view.PageRequested += (_, request) => _ = RunPageRequestAsync(view, request);
+        view.PageEditing = _pageEditing;
+        view.PageEditingChanged += (_, on) => SetPageEditing(on);
         return view;
     }
 
@@ -378,16 +387,7 @@ public sealed partial class MainWindow : Window
             return false;
         }
 
-        var view = CreateDocumentView(doc);
-        view.Viewer.InitialState = old.Viewer.CaptureState();
-        view.SetSidebarVisible(old.IsSidebarVisible);
-        DocumentHost.Children.Remove(old);
-        old.Dispose();
-        DocumentHost.Children.Add(view);
-        tab.Tag = view;
-        tab.Header = Path.GetFileName(path);
-        ToolTipService.SetToolTip(tab, path);
-        OnCurrentDocumentChanged();
+        ReplaceView(tab, old, doc, closeOldDocument: true);
         return true;
     }
 
@@ -427,7 +427,9 @@ public sealed partial class MainWindow : Window
             target = source;
         }
 
-        if (await ReopenAsync(tab, view, target) && target != source)
+        bool reopened = await ReopenAsync(tab, view, target);
+        if (reopened) HistoryFor(tab).MarkAllUnsaved(); // the file on disk now matches only the current state
+        if (reopened && target != source)
         {
             if (!_benchmark) RecentFiles.Add(target);
             ShowInfo($"Saved as {Path.GetFileName(target)}");
@@ -629,6 +631,7 @@ public sealed partial class MainWindow : Window
             view.Dispose();
         }
         Tabs.TabItems.Remove(tab);
+        _histories.Remove(tab);
         if (Tabs.TabItems.Count == 0)
             OnCurrentDocumentChanged();
     }
@@ -950,6 +953,14 @@ public sealed partial class MainWindow : Window
         foreach (var item in new MenuFlyoutItemBase[] { SaveAsItem, ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
             item.IsEnabled = hasDoc;
         SaveItem.IsEnabled = view?.Document.IsModified ?? false;
+        var history = Tabs.SelectedItem is TabViewItem selected && view is not null ? HistoryFor(selected) : null;
+        UndoItem.IsEnabled = history?.CanUndo ?? false;
+        RedoItem.IsEnabled = history?.CanRedo ?? false;
+        PagesMenu.IsEnabled = view is not null;
+        EditPagesMenuItem.IsChecked = _pageEditing;
+        // Page actions need editing on; extracting is allowed since it doesn't change this file.
+        foreach (var item in PagesMenu.Items.OfType<MenuFlyoutItem>().Where(i => i is not ToggleMenuFlyoutItem))
+            item.IsEnabled = _pageEditing || (string?)item.Tag == nameof(PageAction.Extract);
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
         TwoPageItem.IsChecked = view?.Viewer.TwoPage ?? false;
         BackItem.IsEnabled = view?.Viewer.CanGoBack ?? false;
@@ -1208,6 +1219,25 @@ public sealed partial class MainWindow : Window
                     await Task.Delay(1500);
                     Console.Out.WriteLine($"HIGHLIGHT modified={doc.Document.IsModified} tab={(Tabs.SelectedItem as TabViewItem)?.Header}");
                 }
+                if (args.Contains("--edit-pages")) { SetPageEditing(true); await Task.Delay(500); }
+                if (Arg("--pages-test") is { } insertFile)
+                {
+                    async Task Step(string name, Func<Task> action)
+                    {
+                        await action();
+                        await Task.Delay(700);
+                        var v = CurrentView!;
+                        var h = HistoryFor((TabViewItem)Tabs.SelectedItem);
+                        Console.Out.WriteLine($"PAGES {name}: count={v.Document.PageCount} modified={v.Document.IsModified} undo={h.CanUndo} redo={h.CanRedo} size1={v.Document.PageSizes[0]}");
+                    }
+                    await Step("delete page 2", () => RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.Delete, [1])));
+                    await Step("move page 1 to end", () => RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.Move, [0], CurrentView!.Document.PageCount - 1)));
+                    await Step("rotate page 1", () => RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.RotateRight, [0])));
+                    await Step("insert file at 0", () => RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.InsertFromFile, [], 0, insertFile)));
+                    await Step("undo", () => StepHistoryAsync(redo: false));
+                    await Step("undo", () => StepHistoryAsync(redo: false));
+                    await Step("redo", () => StepHistoryAsync(redo: true));
+                }
                 if (args.Contains("--save")) { await SaveAsync(); await Task.Delay(800); }
                 if (Arg("--save-to") is { } saveTo) { await SaveAsync(saveTo); await Task.Delay(800); }
                 if (args.Contains("--save") || Arg("--save-to") is not null)
@@ -1279,7 +1309,9 @@ public sealed partial class MainWindow : Window
             }
             // Keeps the window up so an outside tool can capture popups (dialogs aren't in Root's render).
             if (Arg("--hold") is { } hold) await Task.Delay(int.Parse(hold));
-            Application.Current.Exit();
+            // Close like a user would, so views stop their timers first; exiting with timers live can crash.
+            _exitConfirmed = true;
+            Close();
         }
     }
 

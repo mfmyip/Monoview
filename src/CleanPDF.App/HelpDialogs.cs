@@ -13,6 +13,7 @@ internal static class HelpDialogs
         ("Files", [
             ("Ctrl+O", "Open a PDF"),
             ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
+            ("Ctrl+Z / Ctrl+Y", "Undo / redo"),
             ("F5", "Reload from disk"),
             ("Ctrl+P", "Print"),
             ("Ctrl+D", "Document properties"),
@@ -33,6 +34,12 @@ internal static class HelpDialogs
             ("F11", "Full screen (Esc to leave)"),
             ("← / →", "Previous / next page (single page view)"),
             ("Middle-click", "Autoscroll (click again or Esc to stop)"),
+        ]),
+        ("Pages, in the sidebar", [
+            ("Ctrl+click / Shift+click", "Select several pages"),
+            ("Drag", "Reorder pages; drop a PDF from Explorer to insert it"),
+            ("Delete", "Delete the selected pages"),
+            ("Right-click", "Rotate, insert from a file, extract to a new PDF"),
         ]),
         ("Find and select", [
             ("Ctrl+F", "Search"),

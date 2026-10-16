@@ -37,9 +37,46 @@
                 <SelectorBarItem x:Name="SearchTab" Text="Search" />
             </SelectorBar>
 
+            <!-- Pages. Read-only until "Edit pages" is on, so a stray drag or Delete can't change the document.
+                 When editing: Ctrl/Shift-click to select several, drag to reorder, Delete, drop a PDF to insert. -->
+            <Grid x:Name="PagesPanel" Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <ToggleButton x:Name="EditPagesButton" HorizontalAlignment="Stretch" Margin="8,4,8,4"
+                              Click="EditPagesButton_Click"
+                              ToolTipService.ToolTip="Turn on to reorder, delete, rotate or insert pages">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon x:Name="EditPagesIcon" Glyph="&#xE70F;" FontSize="14" />
+                        <TextBlock x:Name="EditPagesLabel" Text="Edit pages" />
+                    </StackPanel>
+                </ToggleButton>
             <ListView x:Name="Thumbnails" Grid.Row="1" SelectionMode="Single"
+                      CanDragItems="False" CanReorderItems="False" AllowDrop="True"
                       SelectionChanged="Thumbnails_SelectionChanged"
-                      ContainerContentChanging="Thumbnails_ContainerContentChanging">
+                      ContainerContentChanging="Thumbnails_ContainerContentChanging"
+                      DragItemsCompleted="Thumbnails_DragItemsCompleted"
+                      DragOver="Thumbnails_DragOver" Drop="Thumbnails_Drop"
+                      KeyDown="Thumbnails_KeyDown" ContextRequested="Thumbnails_ContextRequested">
+                <ListView.ContextFlyout>
+                    <MenuFlyout x:Name="PageMenu" Opening="PageMenu_Opening">
+                        <ToggleMenuFlyoutItem x:Name="EditPagesMenuItem" Text="Edit pages" Click="EditPagesMenuItem_Click" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Rotate left" Tag="RotateLeft" Click="PageMenu_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7AD;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Rotate right" Tag="RotateRight" Click="PageMenu_Click" />
+                        <MenuFlyoutItem Text="Delete" Tag="Delete" Click="PageMenu_Click" KeyboardAcceleratorTextOverride="Delete">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Insert pages from file…" Tag="InsertFromFile" Click="PageMenu_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Extract pages to a new PDF…" Tag="Extract" Click="PageMenu_Click" />
+                    </MenuFlyout>
+                </ListView.ContextFlyout>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:ThumbnailItem">
                         <StackPanel Padding="0,8" HorizontalAlignment="Center">
@@ -58,6 +95,7 @@
                     </Style>
                 </ListView.ItemContainerStyle>
             </ListView>
+            </Grid>
 
             <Grid x:Name="OutlinePanel" Grid.Row="1" x:Load="False">
                 <TreeView x:Name="Outline" ItemInvoked="Outline_ItemInvoked" SelectionMode="None">

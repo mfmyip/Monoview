@@ -27,20 +27,32 @@ public sealed partial class PdfDocument
     /// </summary>
     public Task SaveCopyAsync(string path) => PdfiumThread.Run(() =>
     {
-        var doc = Doc;
         using var file = File.Create(path);
-        _saveTarget = file;
+        WriteTo(Doc.__Instance, file);
+    });
+
+    /// <summary>The whole document as PDF bytes, for undo snapshots.</summary>
+    public Task<byte[]> SaveToBytesAsync() => PdfiumThread.Run(() =>
+    {
+        using var memory = new MemoryStream();
+        WriteTo(Doc.__Instance, memory);
+        return memory.ToArray();
+    }, WorkPriority.High);
+
+    private static void WriteTo(IntPtr doc, Stream target)
+    {
+        _saveTarget = target;
         try
         {
             var writer = new FileWrite { Version = 1, WriteBlock = Marshal.GetFunctionPointerForDelegate(WriteBlock) };
-            if (FPDF_SaveAsCopy(doc.__Instance, ref writer, FPDF_NO_INCREMENTAL) == 0)
+            if (FPDF_SaveAsCopy(doc, ref writer, FPDF_NO_INCREMENTAL) == 0)
                 throw new PdfException("PDFium could not write the file.");
         }
         finally
         {
             _saveTarget = null;
         }
-    });
+    }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int WriteBlockCallback(IntPtr self, IntPtr data, uint size);

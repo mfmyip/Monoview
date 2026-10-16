@@ -20,9 +20,12 @@ public sealed partial class PdfDocument : IDisposable
     private static bool _libraryInitialized;
 
     private FpdfDocumentT? _doc;
-    private readonly PageSize[] _pageSizes;
-    private readonly PageTransform?[] _transforms;
-    private readonly SearchText?[] _searchTexts;
+    // Rebuilt when pages are added, removed, moved or rotated (see PdfPages.cs).
+    private PageSize[] _pageSizes;
+    private PageTransform?[] _transforms;
+    private SearchText?[] _searchTexts;
+    // A document opened from memory (undo snapshots) needs its bytes pinned while open.
+    private GCHandle _memory;
     private readonly LruCache<int, FpdfPageT> _openPages;
     private readonly LruCache<int, PageText> _texts = new(TextCacheSize);
     private volatile bool _disposed;
@@ -37,46 +40,74 @@ public sealed partial class PdfDocument : IDisposable
     public int PageCount => _pageSizes.Length;
     public IReadOnlyList<PageSize> PageSizes => _pageSizes;
 
-    private PdfDocument(string path, string? password, FpdfDocumentT doc, PageSize[] sizes)
+    private PdfDocument(string path, string? password, FpdfDocumentT doc)
     {
         Path = path;
         Password = password;
         _doc = doc;
-        _pageSizes = sizes;
-        _transforms = new PageTransform?[sizes.Length];
-        _searchTexts = new SearchText?[sizes.Length];
+        _pageSizes = [];
+        _transforms = [];
+        _searchTexts = [];
         _openPages = new LruCache<int, FpdfPageT>(OpenPageCacheSize, page => fpdfview.FPDF_ClosePage(page));
+        ReadPageSizes();
+    }
+
+    /// <summary>Reads page sizes and resets per-page caches; runs on the PDFium thread.</summary>
+    private void ReadPageSizes()
+    {
+        int count = fpdfview.FPDF_GetPageCount(_doc);
+        _pageSizes = new PageSize[count];
+        for (int i = 0; i < count; i++)
+        {
+            double w = 0, h = 0;
+            fpdfview.FPDF_GetPageSizeByIndex(_doc, i, ref w, ref h);
+            _pageSizes[i] = new PageSize(w, h);
+        }
+        _transforms = new PageTransform?[count];
+        _searchTexts = new SearchText?[count];
     }
 
     public static Task<PdfDocument> OpenAsync(string path, string? password = null) => PdfiumThread.Run(() =>
     {
-        if (!_libraryInitialized)
-        {
-            fpdfview.FPDF_InitLibrary();
-            _libraryInitialized = true;
-        }
-
+        EnsureLibrary();
         var doc = fpdfview.FPDF_LoadDocument(path, password);
-        if (IsNull(doc))
-            {
-            ulong error = fpdfview.FPDF_GetLastError();
-            if (error == 4) // FPDF_ERR_PASSWORD: a password is needed, or the one given is wrong
-                throw new PdfPasswordException(password is null
-                    ? "This PDF is protected with a password."
-                    : "That password is not correct.");
-            throw new PdfException(DescribeError(error, path));
-        }
-
-        int count = fpdfview.FPDF_GetPageCount(doc);
-        var sizes = new PageSize[count];
-        for (int i = 0; i < count; i++)
-        {
-            double w = 0, h = 0;
-            fpdfview.FPDF_GetPageSizeByIndex(doc, i, ref w, ref h);
-            sizes[i] = new PageSize(w, h);
-        }
-        return new PdfDocument(path, password, doc, sizes);
+        if (IsNull(doc)) ThrowOpenError(path, password);
+        return new PdfDocument(path, password, doc);
     });
+
+    /// <summary>
+    /// Opens a document from bytes, such as an undo snapshot. <paramref name="path"/> is the file it
+    /// belongs to, used by Save. <paramref name="modified"/> says whether it differs from that file.
+    /// </summary>
+    public static Task<PdfDocument> OpenMemoryAsync(byte[] data, string path, string? password, bool modified) => PdfiumThread.Run(() =>
+    {
+        EnsureLibrary();
+        var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
+        var doc = fpdfview.FPDF_LoadMemDocument(handle.AddrOfPinnedObject(), data.Length, password);
+        if (IsNull(doc))
+        {
+            handle.Free();
+            ThrowOpenError(path, password);
+        }
+        return new PdfDocument(path, password, doc) { _memory = handle, IsModified = modified };
+    });
+
+    private static void EnsureLibrary()
+    {
+        if (_libraryInitialized) return;
+        fpdfview.FPDF_InitLibrary();
+        _libraryInitialized = true;
+    }
+
+    private static void ThrowOpenError(string path, string? password)
+    {
+        ulong error = fpdfview.FPDF_GetLastError();
+        if (error == 4) // FPDF_ERR_PASSWORD: a password is needed, or the one given is wrong
+            throw new PdfPasswordException(password is null
+                ? "This PDF is protected with a password."
+                : "That password is not correct.");
+        throw new PdfException(DescribeError(error, path));
+    }
 
     /// <summary>
     /// Renders part of a page. The page is scaled to <paramref name="fullWidth"/> x
@@ -262,6 +293,7 @@ public sealed partial class PdfDocument : IDisposable
                 fpdfview.FPDF_CloseDocument(_doc);
                 _doc = null;
             }
+            if (_memory.IsAllocated) _memory.Free();
         });
     }
 
