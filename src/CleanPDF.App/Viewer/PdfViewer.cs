@@ -85,7 +85,9 @@ public sealed partial class PdfViewer : UserControl
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             IsTabStop = true,
         };
-        Content = _scroller;
+        // The overlay layer sits above the scrolling content (autoscroll anchor icon).
+        Content = new Grid { Children = { _scroller, _overlayLayer } };
+        InitAutoScroll();
 
         _scroller.ViewChanged += OnViewChanged;
         _scroller.SizeChanged += OnSizeChanged;
@@ -93,7 +95,11 @@ public sealed partial class PdfViewer : UserControl
         _surface.PointerPressed += OnPointerPressed;
         _surface.PointerMoved += OnPointerMoved;
         _surface.PointerReleased += OnPointerReleased;
-        _surface.PointerCaptureLost += (_, _) => _selecting = false;
+        _surface.PointerCaptureLost += (_, _) =>
+        {
+            _selecting = false;
+            OnAutoScrollCaptureLost();
+        };
         _surface.DoubleTapped += OnDoubleTapped;
         _surface.ContextFlyout = BuildContextMenu();
 
@@ -312,6 +318,7 @@ public sealed partial class PdfViewer : UserControl
     /// </summary>
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
+        StopAutoScroll(); // the wheel takes over from autoscroll
         if ((e.KeyModifiers & VirtualKeyModifiers.Control) == 0 || !_laidOut) return;
         var point = e.GetCurrentPoint(_scroller);
         int delta = point.Properties.MouseWheelDelta;
@@ -558,6 +565,7 @@ public sealed partial class PdfViewer : UserControl
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch) return;
+        if (HandleAutoScrollPress(e)) return;
         var point = e.GetCurrentPoint(_surface);
         if (!point.Properties.IsLeftButtonPressed) return;
 
@@ -578,6 +586,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (HandleAutoScrollMove(e)) return;
         var point = e.GetCurrentPoint(_surface);
         if (_selecting)
         {
@@ -619,6 +628,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (HandleAutoScrollRelease(e)) return;
         if (!_selecting) return;
         _selecting = false;
         _surface.ReleasePointerCapture(e.Pointer);

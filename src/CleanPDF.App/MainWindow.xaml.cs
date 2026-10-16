@@ -213,7 +213,7 @@ public sealed partial class MainWindow : Window
     {
         // Document tools only appear when there's a document; the tab strip only when there are tabs.
         var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
-        SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
+        DocTools.Visibility = SearchTools.Visibility = docVisibility;
         Tabs.Visibility = Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
         UpdatePageLabel();
@@ -242,7 +242,6 @@ public sealed partial class MainWindow : Window
             : $"{view.CurrentHitIndex + 1} of {view.HitCount}";
     }
 
-    private void SidebarButton_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
 
     private void ToggleSidebar() => CurrentView?.ToggleSidebar();
 
@@ -469,8 +468,21 @@ public sealed partial class MainWindow : Window
             {
                 if (Arg("--zoom") is { } zoom) doc.Viewer.SetZoom(double.Parse(zoom, System.Globalization.CultureInfo.InvariantCulture));
                 if (Arg("--page") is { } page) { await Task.Delay(300); doc.Viewer.GoToPage(int.Parse(page) - 1); }
-                if (Arg("--sidebar") is { } tab) doc.SelectSidebarTab(tab);
+                if (Arg("--sidebar") is { } tab)
+                {
+                    if (tab == "hidden") doc.SetSidebarVisible(false);
+                    else doc.SelectSidebarTab(tab);
+                }
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
+                if (args.Contains("--autoscroll-test"))
+                {
+                    // Anchor mid-page with the pointer 150 px below it; the icon stays up for the screenshot.
+                    double before = doc.Viewer.VerticalOffset;
+                    doc.Viewer.StartAutoScroll(new Windows.Foundation.Point(500, 400));
+                    doc.Viewer.UpdateAutoScrollPointer(new Windows.Foundation.Point(500, 550));
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"AUTOSCROLL moved={doc.Viewer.VerticalOffset - before:F0}px in 1s, active={doc.Viewer.IsAutoScrolling}");
+                }
                 if (args.Contains("--wheel-test"))
                 {
                     // Rapid Ctrl+wheel notches in, then out, at one point: the content under it must not drift.

@@ -60,11 +60,6 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                <Button x:Name="SidebarButton" Style="{StaticResource ToolButton}" Click="SidebarButton_Click"
-                        ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
-                    <FontIcon Glyph="&#xE8A0;" FontSize="16" />
-                </Button>
-                <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
                 <Button Style="{StaticResource ToolButton}" Click="Open_Click"
                         ToolTipService.ToolTip="Open (Ctrl+O)" AutomationProperties.Name="Open">
                     <FontIcon Glyph="&#xE8E5;" FontSize="16" />

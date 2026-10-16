@@ -61,7 +61,15 @@ public sealed partial class DocumentView : UserControl, IDisposable
     {
         Sidebar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         SidebarColumn.Width = visible ? new GridLength(220) : new GridLength(0);
+
+        // ← (E72B) hides the sidebar, → (E72A) shows it.
+        SidebarToggleIcon.Glyph = visible ? "" : "";
+        string label = visible ? "Hide sidebar" : "Show sidebar";
+        ToolTipService.SetToolTip(SidebarToggle, $"{label} (Ctrl+B)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SidebarToggle, label);
     }
+
+    private void SidebarToggle_Click(object sender, RoutedEventArgs e) => ToggleSidebar();
 
     // ---------------- Thumbnails ----------------
 
