@@ -62,7 +62,13 @@
             <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                 <Button x:Name="SidebarButton" Style="{StaticResource ToolButton}" Click="SidebarButton_Click"
                         ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
-                    <FontIcon Glyph="&#xE8A0;" FontSize="16" />
+                    <!-- Panel icon like Claude's: rounded window outline with the sidebar divider on the left. -->
+                    <Grid Width="16" Height="14">
+                        <Rectangle RadiusX="3" RadiusY="3" StrokeThickness="1.25"
+                                   Stroke="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <Rectangle Width="1.25" HorizontalAlignment="Left" Margin="5,0,0,0"
+                                   Fill="{ThemeResource TextFillColorPrimaryBrush}" />
+                    </Grid>
                 </Button>
                 <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
                 <Button Style="{StaticResource ToolButton}" Click="Open_Click"
