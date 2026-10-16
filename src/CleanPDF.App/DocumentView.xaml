@@ -5,13 +5,27 @@
     xmlns:local="using:CleanPDF.App"
     xmlns:engine="using:CleanPDF.Engine">
 
+    <UserControl.Resources>
+        <!-- One step darker than SolidBackgroundFillColorSecondary, so the page area stands apart from the sidebar. -->
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ViewerBackgroundBrush" Color="#E6E6E6" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ViewerBackgroundBrush" Color="#161616" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="SidebarColumn" Width="220" MinWidth="0" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Grid x:Name="Sidebar" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+        <Grid x:Name="Sidebar">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -81,7 +95,8 @@
             </Grid>
         </Grid>
 
-        <Border x:Name="ViewerHost" Grid.Column="1" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" />
+        <!-- Rounded top-left corner, so the page area meets the tab line softly. -->
+        <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
 
         <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->
         <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="-3,0,0,0"

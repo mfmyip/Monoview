@@ -35,21 +35,37 @@
             <KeyboardAccelerator Modifiers="Control" Key="Number9" Invoked="Accel_FitPage" />
         </Grid.KeyboardAccelerators>
         <Grid.Resources>
-            <!-- Flat, compact toolbar buttons: no fill or border until hovered. -->
-            <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Width" Value="36" />
-                <Setter Property="Height" Value="32" />
-                <Setter Property="CornerRadius" Value="4" />
-            </Style>
-            <Style x:Key="ToolSeparator" TargetType="Rectangle">
-                <Setter Property="Width" Value="1" />
-                <Setter Property="Height" Value="20" />
-                <Setter Property="Margin" Value="6,0" />
-                <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            </Style>
+            <ResourceDictionary>
+                <ResourceDictionary.ThemeDictionaries>
+                    <ResourceDictionary x:Key="Light">
+                        <LinearGradientBrush x:Key="TabOutlineBrush" StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Offset="0" Color="#70000000" />
+                            <GradientStop Offset="1" Color="#30000000" />
+                        </LinearGradientBrush>
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="Dark">
+                        <LinearGradientBrush x:Key="TabOutlineBrush" StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Offset="0" Color="#A0FFFFFF" />
+                            <GradientStop Offset="1" Color="#48FFFFFF" />
+                        </LinearGradientBrush>
+                    </ResourceDictionary>
+                </ResourceDictionary.ThemeDictionaries>
+                <!-- Flat, compact toolbar buttons: no fill or border until hovered. -->
+                <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Width" Value="36" />
+                    <Setter Property="Height" Value="32" />
+                    <Setter Property="CornerRadius" Value="4" />
+                </Style>
+                <Style x:Key="ToolSeparator" TargetType="Rectangle">
+                    <Setter Property="Width" Value="1" />
+                    <Setter Property="Height" Value="20" />
+                    <Setter Property="Margin" Value="6,0" />
+                    <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                </Style>
+            </ResourceDictionary>
         </Grid.Resources>
 
         <!-- Toolbar first, like Preview; the tab strip below it only appears once a document is open. -->
@@ -175,6 +191,10 @@
                 </Button>
 
                 <StackPanel x:Name="DocTools" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button Style="{StaticResource ToolButton}" Click="Print_Click"
+                            ToolTipService.ToolTip="Print (Ctrl+P)" AutomationProperties.Name="Print">
+                        <FontIcon Glyph="&#xE749;" FontSize="16" />
+                    </Button>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
                     <Button Style="{StaticResource ToolButton}" Click="ZoomOut_Click"
                             ToolTipService.ToolTip="Zoom out (Ctrl+-)" AutomationProperties.Name="Zoom out">
@@ -233,9 +253,20 @@
                  AddTabButtonClick="Tabs_AddTabButtonClick"
                  TabCloseRequested="Tabs_TabCloseRequested"
                  SelectionChanged="Tabs_SelectionChanged">
+            <!-- The tab strip draws no fill or lines of its own; TabOutline draws them. -->
+            <TabView.Resources>
+                <SolidColorBrush x:Key="TabViewItemHeaderBackgroundSelected" Color="Transparent" />
+                <SolidColorBrush x:Key="TabViewBorderBrush" Color="Transparent" />
+                <SolidColorBrush x:Key="TabViewSelectedItemBorderBrush" Color="Transparent" />
+            </TabView.Resources>
         </TabView>
+        <!-- One line under the tabs that rises around the active tab like a hat, with rounded corners. Brighter at the top, like glass. -->
+        <Path x:Name="TabOutline" Grid.Row="1" IsHitTestVisible="False" Visibility="Collapsed"
+              HorizontalAlignment="Left" VerticalAlignment="Top" StrokeThickness="1" Stroke="{ThemeResource TabOutlineBrush}" />
 
-        <InfoBar x:Name="ErrorBar" Grid.Row="2" Severity="Error" IsOpen="False" Margin="12,0,12,8" />
+        <!-- Collapsed while closed, or its margin leaves a gap under the tabs. -->
+        <InfoBar x:Name="ErrorBar" Grid.Row="2" Severity="Error" IsOpen="False" Margin="12,0,12,8"
+                 Visibility="{x:Bind ErrorBar.IsOpen, Mode=OneWay}" />
 
         <Grid x:Name="DocumentHost" Grid.Row="3" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
             <ScrollViewer x:Name="StartPage" Visibility="Collapsed">

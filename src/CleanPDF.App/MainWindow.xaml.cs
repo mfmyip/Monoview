@@ -34,6 +34,13 @@ public sealed partial class MainWindow : Window
         Root.ActualThemeChanged += (_, _) => UseDarkTitleBar(Root.ActualTheme == ElementTheme.Dark);
         ApplyTheme();
         AppSettings.Changed += (_, _) => ApplyTheme();
+        // The tab strip draws its own line under the tabs, open under the active one; the document's top line would close it.
+        Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
+        {
+            DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
+            TabOutline.Visibility = Tabs.Visibility;
+        });
+        Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();
 
         // Ctrl+= and Ctrl+- on the main keyboard (no named VirtualKey for these).
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
@@ -132,6 +139,38 @@ public sealed partial class MainWindow : Window
         if (!_benchmark)
             RecentFiles.Add(path);
         ErrorBar.IsOpen = false;
+    }
+
+    private string? _tabOutlineData;
+
+    // Redrawn on every layout pass (select, reorder, resize, close), so it only rebuilds when the shape moved.
+    private void UpdateTabOutline()
+    {
+        if (Tabs.Visibility != Visibility.Visible) return;
+        double w = Tabs.ActualWidth, b = Tabs.ActualHeight - 0.5;
+        string data = FormattableString.Invariant($"M 0,{b} H {w}");
+        if (Tabs.SelectedItem is TabViewItem tab && FindByName(tab, "TabContainer") is FrameworkElement box && box.ActualWidth > 0)
+        {
+            var r = box.TransformToVisual(Tabs).TransformBounds(new Windows.Foundation.Rect(0, 0, box.ActualWidth, box.ActualHeight));
+            double x0 = r.Left + 0.5, x1 = r.Right - 0.5, t = r.Top + 0.5, flare = 8, top = 8;
+            data = FormattableString.Invariant($"M 0,{b} H {x0 - flare} A {flare},{flare} 0 0 0 {x0},{b - flare} V {t + top} A {top},{top} 0 0 1 {x0 + top},{t} ")
+                + FormattableString.Invariant($"H {x1 - top} A {top},{top} 0 0 1 {x1},{t + top} V {b - flare} A {flare},{flare} 0 0 0 {x1 + flare},{b} H {w}");
+        }
+        if (data == _tabOutlineData) return;
+        _tabOutlineData = data;
+        TabOutline.Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
+            typeof(Microsoft.UI.Xaml.Media.Geometry), data);
+    }
+
+    private static FrameworkElement? FindByName(DependencyObject root, string name)
+    {
+        for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is FrameworkElement fe && fe.Name == name) return fe;
+            if (FindByName(child, name) is { } found) return found;
+        }
+        return null;
     }
 
     private DocumentView CreateDocumentView(PdfDocument doc)

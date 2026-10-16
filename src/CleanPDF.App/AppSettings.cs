@@ -29,7 +29,8 @@ public sealed class AppSettings
     /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
     public double SidebarWidth { get; set; } = 220;
 
-    public static double ClampSidebarWidth(double width) => Math.Clamp(width, 160, 520);
+    // The minimum fits the Pages, Outline and Search tabs without clipping.
+    public static double ClampSidebarWidth(double width) => Math.Clamp(width, 216, 520);
 
     private static readonly string StorePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CleanPDF", "settings.json");
