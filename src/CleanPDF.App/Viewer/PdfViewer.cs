@@ -44,6 +44,7 @@ public sealed partial class PdfViewer : UserControl
 
     private readonly double[] _top, _left, _w, _h;
     private double _zoom = 1;
+    private Point? _pendingOffset;
     private bool _laidOut;
     private bool _firstPageReported;
 
@@ -88,6 +89,7 @@ public sealed partial class PdfViewer : UserControl
 
         _scroller.ViewChanged += OnViewChanged;
         _scroller.SizeChanged += OnSizeChanged;
+        _surface.PointerWheelChanged += OnPointerWheelChanged;
         _surface.PointerPressed += OnPointerPressed;
         _surface.PointerMoved += OnPointerMoved;
         _surface.PointerReleased += OnPointerReleased;
@@ -168,8 +170,12 @@ public sealed partial class PdfViewer : UserControl
         bool hadLayout = _laidOut && PageCount > 0;
         int page = 0;
         double fx = 0.5, fy = 0;
+        // ChangeView applies on the next layout tick, so rapid wheel notches use the offset we
+        // last asked for rather than the one the ScrollViewer still reports.
+        double h = _pendingOffset?.X ?? _scroller.HorizontalOffset;
+        double v = _pendingOffset?.Y ?? _scroller.VerticalOffset;
         if (hadLayout)
-            (page, fx, fy) = ContentToPage((_scroller.HorizontalOffset + a.X) / zf, (_scroller.VerticalOffset + a.Y) / zf);
+            (page, fx, fy) = ContentToPage((h + a.X) / zf, (v + a.Y) / zf);
 
         _zoom = zoom;
         Layout();
@@ -180,7 +186,11 @@ public sealed partial class PdfViewer : UserControl
         {
             double cx = _left[page] + fx * _w[page];
             double cy = _top[page] + fy * _h[page];
-            _scroller.ChangeView(Math.Max(0, cx - a.X), Math.Max(0, cy - a.Y), 1f, true);
+            var target = new Point(
+                Math.Clamp(cx - a.X, 0, Math.Max(0, _surface.Width - _scroller.ViewportWidth)),
+                Math.Clamp(cy - a.Y, 0, Math.Max(0, _surface.Height - _scroller.ViewportHeight)));
+            _pendingOffset = target;
+            _scroller.ChangeView(target.X, target.Y, 1f, true);
         }
         else
         {
@@ -281,6 +291,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        if (!e.IsIntermediate) _pendingOffset = null;
         float zf = _scroller.ZoomFactor;
         if (!e.IsIntermediate && Math.Abs(zf - 1) > 0.001)
         {
@@ -292,6 +303,38 @@ public sealed partial class PdfViewer : UserControl
         bool zooming = Math.Abs(zf - 1) > 0.001;
         UpdateViewport(requestTiles: !zooming);
         if (zooming) ZoomChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Ctrl+wheel zooms like Acrobat: each notch is an immediate step (20%) around the mouse
+    /// pointer, with no animation. Smooth-scrolling touchpads send smaller deltas and get
+    /// proportionally smaller steps. Touchpad pinch still goes through the ScrollViewer.
+    /// </summary>
+    private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if ((e.KeyModifiers & VirtualKeyModifiers.Control) == 0 || !_laidOut) return;
+        var point = e.GetCurrentPoint(_scroller);
+        int delta = point.Properties.MouseWheelDelta;
+        if (delta == 0 || point.Properties.IsHorizontalMouseWheel) return;
+        e.Handled = true; // stop the ScrollViewer's own animated zoom
+        WheelZoom(delta, point.Position);
+    }
+
+    /// <summary>One Ctrl+wheel zoom step of <paramref name="delta"/> (120 per notch) around a viewport point.</summary>
+    public void WheelZoom(int delta, Point anchor)
+    {
+        FitMode = FitMode.Custom;
+        double zoom = Zoom * Math.Pow(1.2, delta / 120.0);
+        // Make 100% easy to land on, as Acrobat's zoom steps do.
+        if (Math.Abs(zoom - 1) < 0.04) zoom = 1;
+        ApplyZoom(zoom, anchor, requestTiles: false);
+    }
+
+    /// <summary>Dev check: page coordinates (page, x, y fractions) under a viewport point.</summary>
+    public (int Page, double Fx, double Fy) PageAtViewportPoint(Point p)
+    {
+        float zf = _scroller.ZoomFactor;
+        return ContentToPage((_scroller.HorizontalOffset + p.X) / zf, (_scroller.VerticalOffset + p.Y) / zf);
     }
 
     private void RestartSettleTimer()

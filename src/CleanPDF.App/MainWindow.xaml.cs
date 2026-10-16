@@ -471,6 +471,17 @@ public sealed partial class MainWindow : Window
                 if (Arg("--page") is { } page) { await Task.Delay(300); doc.Viewer.GoToPage(int.Parse(page) - 1); }
                 if (Arg("--sidebar") is { } tab) doc.SelectSidebarTab(tab);
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
+                if (args.Contains("--wheel-test"))
+                {
+                    // Rapid Ctrl+wheel notches in, then out, at one point: the content under it must not drift.
+                    var anchor = new Windows.Foundation.Point(300, 400);
+                    var before = doc.Viewer.PageAtViewportPoint(anchor);
+                    foreach (int delta in new[] { 120, 120, 120, 120, -120, 240, -360 })
+                        doc.Viewer.WheelZoom(delta, anchor);
+                    await Task.Delay(800);
+                    var after = doc.Viewer.PageAtViewportPoint(anchor);
+                    Console.Out.WriteLine($"WHEEL zoom={doc.Viewer.Zoom:F3} before=({before.Page},{before.Fx:F4},{before.Fy:F4}) after=({after.Page},{after.Fx:F4},{after.Fy:F4})");
+                }
                 await Task.Delay(1200);
             }
             if (Arg("--screenshot") is { } shot)
