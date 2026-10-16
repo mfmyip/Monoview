@@ -247,11 +247,14 @@ public sealed partial class PdfDocument : IDisposable
         return sb.ToString();
     }
 
-    public void Dispose()
+    public void Dispose() => _ = CloseAsync();
+
+    /// <summary>Closes the document; the returned task completes once PDFium has released the file.</summary>
+    public Task CloseAsync()
     {
-        if (_disposed) return;
+        if (_disposed) return _closed ?? Task.CompletedTask;
         _disposed = true;
-        _ = PdfiumThread.Run(() =>
+        return _closed = PdfiumThread.Run(() =>
         {
             _openPages.Clear();
             if (_doc is not null)
@@ -261,6 +264,8 @@ public sealed partial class PdfDocument : IDisposable
             }
         });
     }
+
+    private Task? _closed;
 
     // ---- Everything below runs on the PDFium thread. ----
 

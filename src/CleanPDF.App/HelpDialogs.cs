@@ -12,6 +12,7 @@ internal static class HelpDialogs
     [
         ("Files", [
             ("Ctrl+O", "Open a PDF"),
+            ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
             ("F5", "Reload from disk"),
             ("Ctrl+P", "Print"),
             ("Ctrl+D", "Document properties"),

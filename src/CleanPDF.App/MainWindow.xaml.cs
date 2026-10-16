@@ -48,6 +48,8 @@ public sealed partial class MainWindow : Window
         AddAccelerator((VirtualKey)188, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = OpenSettingsAsync(); }); // Ctrl+,
         AddAccelerator(VirtualKey.G, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; FocusPageBox(); });
         AddAccelerator(VirtualKey.P, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = PrintAsync(); });
+        AddAccelerator(VirtualKey.S, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = SaveAsync(); });
+        AddAccelerator(VirtualKey.S, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; _ = SaveAsAsync(); });
         AddAccelerator(VirtualKey.F5, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = ReloadAsync(); });
         AddAccelerator(VirtualKey.D, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; ShowProperties(); });
         AddAccelerator(VirtualKey.R, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(+1); });
@@ -264,7 +266,13 @@ public sealed partial class MainWindow : Window
     private async Task ReloadAsync()
     {
         if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView old) return;
-        string path = old.Document.Path;
+        if (await ReopenAsync(tab, old, old.Document.Path))
+            ShowInfo($"Reloaded {Path.GetFileName(old.Document.Path)}");
+    }
+
+    /// <summary>Opens <paramref name="path"/> in place of <paramref name="old"/>, keeping page, zoom, rotation and sidebar.</summary>
+    private async Task<bool> ReopenAsync(TabViewItem tab, DocumentView old, string path)
+    {
         PdfDocument doc;
         try
         {
@@ -272,8 +280,8 @@ public sealed partial class MainWindow : Window
         }
         catch (PdfException ex)
         {
-            ShowError($"Couldn't reload {Path.GetFileName(path)}", ex.Message);
-            return;
+            ShowError($"Couldn't open {Path.GetFileName(path)}", ex.Message);
+            return false;
         }
 
         var view = CreateDocumentView(doc);
@@ -283,8 +291,74 @@ public sealed partial class MainWindow : Window
         old.Dispose();
         DocumentHost.Children.Add(view);
         tab.Tag = view;
+        tab.Header = Path.GetFileName(path);
+        ToolTipService.SetToolTip(tab, path);
         OnCurrentDocumentChanged();
-        ShowInfo($"Reloaded {Path.GetFileName(path)}");
+        return true;
+    }
+
+    /// <summary>
+    /// Saves the current document to <paramref name="target"/>, or to its own file when null. Writes a
+    /// temp file next to the target first and swaps it in, so a failed save never damages the original.
+    /// </summary>
+    private async Task SaveAsync(string? target = null)
+    {
+        if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView view) return;
+        string source = view.Document.Path;
+        target = Path.GetFullPath(target ?? source);
+        string temp = Path.Combine(Path.GetDirectoryName(target)!, $"~{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await view.Document.SaveCopyAsync(temp);
+        }
+        catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
+        {
+            File.Delete(temp);
+            ShowError($"Couldn't save {Path.GetFileName(target)}", ex.Message);
+            return;
+        }
+
+        // PDFium keeps the open file locked, so release it before replacing it.
+        if (string.Equals(target, source, StringComparison.OrdinalIgnoreCase))
+            await view.Document.CloseAsync();
+        try
+        {
+            File.Move(temp, target, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            File.Delete(temp);
+            ShowError($"Couldn't save {Path.GetFileName(target)}", ex.Message);
+            target = source;
+        }
+
+        if (await ReopenAsync(tab, view, target) && target != source)
+        {
+            if (!_benchmark) RecentFiles.Add(target);
+            ShowInfo($"Saved as {Path.GetFileName(target)}");
+        }
+        else if (target == source)
+        {
+            ShowInfo($"Saved {Path.GetFileName(target)}");
+        }
+    }
+
+    private async Task SaveAsAsync()
+    {
+        if (CurrentView is not { } view) return;
+        var picker = new FileSavePicker { SuggestedFileName = Path.GetFileNameWithoutExtension(view.Document.Path) };
+        picker.FileTypeChoices.Add("PDF document", new List<string> { ".pdf" });
+        try
+        {
+            // Start in the file's own folder.
+            picker.SuggestedSaveFile = await StorageFile.GetFileFromPathAsync(view.Document.Path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException or ArgumentException)
+        {
+        }
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        if (await picker.PickSaveFileAsync() is { } file)
+            await SaveAsync(file.Path);
     }
 
     private PrintService? _printService;
@@ -699,7 +773,7 @@ public sealed partial class MainWindow : Window
     {
         var view = CurrentView;
         bool hasDoc = view is not null;
-        foreach (var item in new MenuFlyoutItemBase[] { ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
+        foreach (var item in new MenuFlyoutItemBase[] { SaveItem, SaveAsItem, ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu, SelectAllItem })
             item.IsEnabled = hasDoc;
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
         TwoPageItem.IsChecked = view?.Viewer.TwoPage ?? false;
@@ -722,6 +796,8 @@ public sealed partial class MainWindow : Window
     }
 
     private void Reload_Click(object sender, RoutedEventArgs e) => _ = ReloadAsync();
+    private void Save_Click(object sender, RoutedEventArgs e) => _ = SaveAsync();
+    private void SaveAs_Click(object sender, RoutedEventArgs e) => _ = SaveAsAsync();
     private void Print_Click(object sender, RoutedEventArgs e) => _ = PrintAsync();
     private void Properties_Click(object sender, RoutedEventArgs e) => ShowProperties();
     private void CloseAll_Click(object sender, RoutedEventArgs e) => CloseAllTabs();
@@ -949,6 +1025,10 @@ public sealed partial class MainWindow : Window
                 if (Arg("--rotate") is { } turns) { doc.Viewer.Rotate(int.Parse(turns)); await Task.Delay(800); }
                 if (args.Contains("--single-page")) { doc.Viewer.SetSinglePage(true); await Task.Delay(300); }
                 if (args.Contains("--two-page")) { doc.Viewer.SetTwoPage(true); await Task.Delay(800); }
+                if (args.Contains("--save")) { await SaveAsync(); await Task.Delay(800); }
+                if (Arg("--save-to") is { } saveTo) { await SaveAsync(saveTo); await Task.Delay(800); }
+                if (args.Contains("--save") || Arg("--save-to") is not null)
+                    Console.Out.WriteLine($"SAVED tab={(Tabs.SelectedItem as TabViewItem)?.Header} path={CurrentView?.Document.Path} pages={CurrentView?.Document.PageCount} page={CurrentView?.Viewer.CurrentPage + 1} error={(ErrorBar.Severity == InfoBarSeverity.Error && ErrorBar.IsOpen ? ErrorBar.Message : "none")}");
                 if (Arg("--password-prompt") is { } locked) { _ = AskPasswordAndOpenAsync(locked); await Task.Delay(800); }
                 if (args.Contains("--history-test"))
                 {

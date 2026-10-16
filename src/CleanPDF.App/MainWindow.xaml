@@ -89,6 +89,10 @@
                             <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="Open recent files">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutSubItem.Icon>
                             </MenuFlyoutSubItem>
+                            <MenuFlyoutItem x:Name="SaveItem" Text="Save" Click="Save_Click" KeyboardAcceleratorTextOverride="Ctrl+S">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="SaveAsItem" Text="Save as…" Click="SaveAs_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+S" />
                             <MenuFlyoutItem x:Name="ReloadItem" Text="Reload" Click="Reload_Click" KeyboardAcceleratorTextOverride="F5">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
