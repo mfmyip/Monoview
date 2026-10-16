@@ -37,12 +37,13 @@ public sealed partial class DocumentView : UserControl, IDisposable
         Viewer = new PdfViewer(document, _previews);
         ViewerHost.Child = Viewer;
 
-        for (int i = 0; i < document.PageCount; i++)
+        BuildThumbnails();
+        // Rotating the view rotates the thumbnails too.
+        _previews.RotationChanged += (_, _) =>
         {
-            var size = document.PageSizes[i];
-            double scale = Math.Min(ThumbMaxWidth / size.Width, ThumbMaxHeight / size.Height);
-            _thumbs.Add(new ThumbnailItem(i, Math.Round(size.Width * scale), Math.Round(size.Height * scale)));
-        }
+            BuildThumbnails();
+            SyncThumbnailSelection();
+        };
         // Fill the thumbnail list once the first page is sharp (or after a second, if rendering
         // fails), so it doesn't slow the first paint.
         Viewer.FirstPageRendered += (_, _) => ShowThumbnails();
@@ -84,6 +85,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         _dragStartX = e.GetCurrentPoint(this).Position.X;
         _dragStartWidth = SidebarColumn.ActualWidth;
+        Viewer.BeginInteractiveResize();
         SidebarSplitter.CapturePointer(e.Pointer);
         e.Handled = true;
     }
@@ -110,6 +112,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
         if (_dragStartX is null) return;
         _dragStartX = _dragStartWidth = null;
         ProtectedCursor = null;
+        Viewer.EndInteractiveResize();
         AppSettings.Current.SidebarWidth = SidebarColumn.ActualWidth;
         AppSettings.Save();
         SidebarWidthChanged?.Invoke(this, EventArgs.Empty);
@@ -124,6 +127,17 @@ public sealed partial class DocumentView : UserControl, IDisposable
     }
 
     // ---------------- Thumbnails ----------------
+
+    private void BuildThumbnails()
+    {
+        _thumbs.Clear();
+        for (int i = 0; i < Document.PageCount; i++)
+        {
+            var size = CleanPDF.Engine.Rotation.Apply(Document.PageSizes[i], _previews.Rotation);
+            double scale = Math.Min(ThumbMaxWidth / size.Width, ThumbMaxHeight / size.Height);
+            _thumbs.Add(new ThumbnailItem(i, Math.Round(size.Width * scale), Math.Round(size.Height * scale)));
+        }
+    }
 
     private void ShowThumbnails()
     {

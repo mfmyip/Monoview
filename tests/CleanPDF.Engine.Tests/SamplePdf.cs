@@ -28,6 +28,7 @@ internal static class SamplePdf
             [5] = "<< /Title (Introduction) /Parent 3 0 R /Next 6 0 R /Dest [10 0 R /XYZ 0 792 0] >>",
             [6] = "<< /Title (Rotated) /Parent 3 0 R /Prev 5 0 R /First 7 0 R /Last 7 0 R /Count 1 /Dest [11 0 R /Fit] >>",
             [7] = "<< /Title (Small page) /Parent 6 0 R /Dest [12 0 R /Fit] >>",
+            [8] = "<< /Title (CleanPDF sample) /Author (Engine tests) /Producer (SamplePdf.cs) /CreationDate (D:20260101120000+02'00') >>",
 
             [10] = Page("612 792", 20),
             [11] = Page("612 792", 21, "/Rotate 90"),
@@ -59,7 +60,7 @@ internal static class SamplePdf
         W($"xref\n0 {size}\n0000000000 65535 f \n");
         for (int id = 1; id < size; id++)
             W(offsets.TryGetValue(id, out var off) ? $"{off:D10} 00000 n \n" : "0000000000 65535 f \n");
-        W($"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        W($"trailer\n<< /Size {size} /Root 1 0 R /Info 8 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return path;
 
         static string Page(string size, int contents, string extra = "") =>

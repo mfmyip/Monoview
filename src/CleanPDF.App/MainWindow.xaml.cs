@@ -40,6 +40,15 @@ public sealed partial class MainWindow : Window
         AddAccelerator((VirtualKey)189, VirtualKeyModifiers.Control, Accel_ZoomOut);
         AddAccelerator((VirtualKey)188, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = OpenSettingsAsync(); }); // Ctrl+,
         AddAccelerator(VirtualKey.G, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; FocusPageBox(); });
+        AddAccelerator(VirtualKey.P, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = PrintAsync(); });
+        AddAccelerator(VirtualKey.F5, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = ReloadAsync(); });
+        AddAccelerator(VirtualKey.D, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; ShowProperties(); });
+        AddAccelerator(VirtualKey.R, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(+1); });
+        AddAccelerator(VirtualKey.L, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(-1); });
+        AddAccelerator(VirtualKey.F11, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; ToggleFullScreen(); });
+        AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; CloseAllTabs(); });
+        // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
+        AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, (sender, e) => { if (_fullScreen) { e.Handled = true; SetFullScreen(false); } });
         AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
 
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
@@ -98,15 +107,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var view = new DocumentView(doc);
-        view.Viewer.CurrentPageChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdatePageLabel(); };
-        view.Viewer.ZoomChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateZoomLabel(); };
-        view.SearchChanged += (s, _) => { if (ReferenceEquals(s, CurrentView)) UpdateSearchCount(); };
-        view.SidebarWidthChanged += (s, _) =>
-        {
-            foreach (var other in DocumentViews())
-                if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
-        };
+        var view = CreateDocumentView(doc);
         if (_benchmark)
             view.Viewer.FirstPageRendered += (_, _) => ReportBenchmarkAndExit();
 
@@ -129,6 +130,96 @@ public sealed partial class MainWindow : Window
         if (!_benchmark)
             RecentFiles.Add(path);
         ErrorBar.IsOpen = false;
+    }
+
+    private DocumentView CreateDocumentView(PdfDocument doc)
+    {
+        var view = new DocumentView(doc);
+        view.Viewer.CurrentPageChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdatePageLabel(); };
+        view.Viewer.ZoomChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateZoomLabel(); };
+        view.SearchChanged += (s, _) => { if (ReferenceEquals(s, CurrentView)) UpdateSearchCount(); };
+        view.SidebarWidthChanged += (s, _) =>
+        {
+            foreach (var other in DocumentViews())
+                if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
+        };
+        return view;
+    }
+
+    /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>
+    private async Task ReloadAsync()
+    {
+        if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView old) return;
+        string path = old.Document.Path;
+        PdfDocument doc;
+        try
+        {
+            doc = await PdfDocument.OpenAsync(path);
+        }
+        catch (PdfException ex)
+        {
+            ShowError($"Couldn't reload {Path.GetFileName(path)}", ex.Message);
+            return;
+        }
+
+        var view = CreateDocumentView(doc);
+        view.Viewer.InitialState = old.Viewer.CaptureState();
+        view.SetSidebarVisible(old.IsSidebarVisible);
+        DocumentHost.Children.Remove(old);
+        old.Dispose();
+        DocumentHost.Children.Add(view);
+        tab.Tag = view;
+        OnCurrentDocumentChanged();
+        ShowInfo($"Reloaded {Path.GetFileName(path)}");
+    }
+
+    private async Task PrintAsync()
+    {
+        if (CurrentView is not { } view) return;
+        var result = PrintDialog.Show(WinRT.Interop.WindowNative.GetWindowHandle(this), view.Document.PageCount, view.Viewer.CurrentPage);
+        if (result is null) return;
+        try
+        {
+            int total = result.Pages.Count;
+            ShowInfo($"Printing page 1 of {total}…", sticky: true);
+            var progress = new Progress<int>(done => ShowInfo(done < total
+                ? $"Printing page {done + 1} of {total}…"
+                : $"Sent {total} page{(total == 1 ? "" : "s")} to {result.PrinterName}", sticky: done < total));
+            await PdfPrinter.PrintAsync(view.Document, result.Hdc, Path.GetFileName(view.Document.Path), result.Pages, progress: progress);
+        }
+        catch (Exception ex) when (ex is PdfException or ObjectDisposedException)
+        {
+            ShowError("Printing failed", ex.Message);
+        }
+        finally
+        {
+            PdfPrinter.DeletePrinterDC(result.Hdc);
+        }
+    }
+
+    private void CloseAllTabs()
+    {
+        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>().ToList())
+            CloseTab(tab);
+    }
+
+    // ---------------- Full screen ----------------
+
+    private bool _fullScreen;
+
+    private void ToggleFullScreen() => SetFullScreen(!_fullScreen);
+
+    /// <summary>Full screen hides the toolbar and tabs for reading; Esc or F11 leaves it.</summary>
+    private void SetFullScreen(bool on)
+    {
+        if (on == _fullScreen) return;
+        _fullScreen = on;
+        AppWindow.SetPresenter(on ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
+                                  : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+        Toolbar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        Tabs.Visibility = !on && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (on) ShowInfo("Full screen — press Esc or F11 to exit");
+        else ErrorBar.IsOpen = false;
     }
 
     private async Task PickAndOpenAsync()
@@ -223,7 +314,7 @@ public sealed partial class MainWindow : Window
         // Document tools only appear when there's a document; the tab strip only when there are tabs.
         var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
         SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
-        Tabs.Visibility = Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
         UpdatePageLabel();
         UpdateZoomLabel();
@@ -467,8 +558,10 @@ public sealed partial class MainWindow : Window
     {
         var view = CurrentView;
         bool hasDoc = view is not null;
-        foreach (var item in new MenuFlyoutItemBase[] { CloseTabItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu })
+        foreach (var item in new MenuFlyoutItemBase[] { ReloadItem, PrintItem, PropertiesItem, CloseTabItem, CloseAllItem, ShowInExplorerItem, CopyPathItem, ViewMenu, FindMenu })
             item.IsEnabled = hasDoc;
+        SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
+        FullScreenItem.IsChecked = _fullScreen;
         CopyItem.IsEnabled = view?.Viewer.HasSelection ?? false;
         SidebarItem.Text = view?.IsSidebarVisible == false ? "Show sidebar" : "Hide sidebar";
 
@@ -482,6 +575,21 @@ public sealed partial class MainWindow : Window
         }
         if (RecentSubMenu.Items.Count == 0)
             RecentSubMenu.Items.Add(new MenuFlyoutItem { Text = "No recent files", IsEnabled = false });
+    }
+
+    private void Reload_Click(object sender, RoutedEventArgs e) => _ = ReloadAsync();
+    private void Print_Click(object sender, RoutedEventArgs e) => _ = PrintAsync();
+    private void Properties_Click(object sender, RoutedEventArgs e) => ShowProperties();
+    private void CloseAll_Click(object sender, RoutedEventArgs e) => CloseAllTabs();
+    private void RotateRight_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(+1);
+    private void RotateLeft_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.Rotate(-1);
+    private void SinglePage_Click(object sender, RoutedEventArgs e) => CurrentView?.Viewer.SetSinglePage(SinglePageItem.IsChecked);
+    private void FullScreen_Click(object sender, RoutedEventArgs e) => SetFullScreen(FullScreenItem.IsChecked);
+
+    private void ShowProperties()
+    {
+        if (CurrentView is { } view)
+            _ = RunDialogAsync(root => PropertiesDialog.ShowAsync(root, view.Document));
     }
 
     private void CloseTab_Click(object sender, RoutedEventArgs e)
@@ -532,9 +640,34 @@ public sealed partial class MainWindow : Window
 
     private void ShowError(string title, string message)
     {
+        _infoTimer?.Stop();
+        ErrorBar.Severity = InfoBarSeverity.Error;
         ErrorBar.Title = title;
         ErrorBar.Message = message;
         ErrorBar.IsOpen = true;
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _infoTimer;
+
+    /// <summary>A short status message in the info bar; it hides itself after a few seconds unless <paramref name="sticky"/>.</summary>
+    private void ShowInfo(string message, bool sticky = false)
+    {
+        ErrorBar.Severity = InfoBarSeverity.Informational;
+        ErrorBar.Title = message;
+        ErrorBar.Message = "";
+        ErrorBar.IsOpen = true;
+        _infoTimer ??= CreateInfoTimer();
+        _infoTimer.Stop();
+        if (!sticky) _infoTimer.Start();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateInfoTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(3);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) => { if (ErrorBar.Severity == InfoBarSeverity.Informational) ErrorBar.IsOpen = false; };
+        return timer;
     }
 
     public void BringToFront()
@@ -568,13 +701,24 @@ public sealed partial class MainWindow : Window
             if (CurrentView is { } doc)
             {
                 if (Arg("--zoom") is { } zoom) doc.Viewer.SetZoom(double.Parse(zoom, System.Globalization.CultureInfo.InvariantCulture));
-                if (Arg("--page") is { } page) { await Task.Delay(300); doc.Viewer.GoToPage(int.Parse(page) - 1); }
+                if (Arg("--page") is { } page) { await Task.Delay(300); doc.Viewer.GoToPage(int.Parse(page) - 1); await Task.Delay(400); }
                 if (Arg("--sidebar") is { } tab)
                 {
                     if (tab == "hidden") doc.SetSidebarVisible(false);
                     else doc.SelectSidebarTab(tab);
                 }
                 if (args.Contains("--select-all")) await doc.Viewer.SelectAllAsync();
+                if (Arg("--rotate") is { } turns) { doc.Viewer.Rotate(int.Parse(turns)); await Task.Delay(800); }
+                if (args.Contains("--single-page")) { doc.Viewer.SetSinglePage(true); await Task.Delay(300); }
+                if (args.Contains("--fullscreen")) { SetFullScreen(true); await Task.Delay(800); }
+                if (args.Contains("--reload"))
+                {
+                    Console.Out.WriteLine($"BEFORE_RELOAD page={CurrentView?.Viewer.CurrentPage + 1}");
+                    await ReloadAsync();
+                    await Task.Delay(1200);
+                    Console.Out.WriteLine($"RELOADED page={CurrentView?.Viewer.CurrentPage + 1} zoom={CurrentView?.Viewer.Zoom:F2} rotation={CurrentView?.Viewer.ViewRotation}");
+                }
+                if (args.Contains("--properties")) { ShowProperties(); await Task.Delay(1000); }
                 if (args.Contains("--settings-dialog")) { _ = OpenSettingsAsync(); await Task.Delay(800); }
                 if (Arg("--dialog") is { } dialog)
                 {

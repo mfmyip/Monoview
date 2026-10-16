@@ -1,4 +1,6 @@
-﻿using CleanPDF.Engine;
+using CleanPDF.Engine;
+// UIElement has its own Rotation property, which hides the engine's Rotation class in here.
+using PageRotation = CleanPDF.Engine.Rotation;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
@@ -15,6 +17,9 @@ using Windows.System;
 namespace CleanPDF.App.Viewer;
 
 public enum FitMode { FitWidth, FitPage, Custom }
+
+/// <summary>What Reload carries over to the reopened document.</summary>
+public sealed record ViewState(int Page, double Zoom, FitMode FitMode, int Rotation, bool SinglePage);
 
 /// <summary>
 /// Continuous-scroll page view. Pages are laid out in a column on a canvas inside a
@@ -47,6 +52,9 @@ public sealed partial class PdfViewer : UserControl
     private Point? _pendingOffset;
     private bool _laidOut;
     private bool _firstPageReported;
+    private bool _holdZoomWhileResizing;
+    private int _rotation;
+    private bool _singlePage;
 
     private TextPos? _anchor, _focus;
     private bool _selecting;
@@ -101,6 +109,7 @@ public sealed partial class PdfViewer : UserControl
             OnAutoScrollCaptureLost();
         };
         _surface.DoubleTapped += OnDoubleTapped;
+        PreviewKeyDown += OnPreviewKeyDown;
         _surface.ContextFlyout = BuildContextMenu();
 
         _settleTimer = DispatcherQueue.CreateTimer();
@@ -128,8 +137,72 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Effective zoom; 1 = actual size (72 points per inch shown as 96 DIPs per inch).</summary>
     public double Zoom => _zoom * _scroller.ZoomFactor;
     public bool HasSelection => _anchor is { } a && _focus is { } f && a != f;
+    /// <summary>View rotation in quarter turns clockwise (not saved to the file).</summary>
+    public int ViewRotation => _rotation;
+    /// <summary>One page at a time instead of a continuous column.</summary>
+    public bool SinglePage => _singlePage;
+
+    /// <summary>State to restore on first layout (Reload keeps page, zoom, rotation and layout).</summary>
+    public ViewState? InitialState { get; set; }
+
+    public ViewState CaptureState() => new(CurrentPage, Zoom, FitMode, _rotation, _singlePage);
 
     private double RasterScale => XamlRoot?.RasterizationScale ?? 1.0;
+
+    /// <summary>Page size in points as shown, with the view rotation applied.</summary>
+    private PageSize ShownSize(int index) => PageRotation.Apply(_doc.PageSizes[index], _rotation);
+
+    // ---------------- Rotation, single page, interactive resize ----------------
+
+    public void Rotate(int quarterTurns)
+    {
+        int page = CurrentPage;
+        _rotation = PageRotation.Normalize(_rotation + quarterTurns);
+        _previews.Rotation = _rotation;
+        ResetViews();
+        ApplyZoom(FitMode == FitMode.Custom ? _zoom : ComputeFitZoom(), null, requestTiles: true);
+        GoToPage(page);
+        RotationChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void SetSinglePage(bool single)
+    {
+        if (single == _singlePage) return;
+        int page = CurrentPage;
+        _singlePage = single;
+        ResetViews();
+        ApplyZoom(FitMode == FitMode.Custom ? _zoom : ComputeFitZoom(), null, requestTiles: true);
+        GoToPage(page);
+        LayoutModeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// While the sidebar is being dragged, keep the zoom and only re-center pages; re-fit once at
+    /// the end. Re-fitting on every pixel of the drag made fit-width feel choppy.
+    /// </summary>
+    public void BeginInteractiveResize() => _holdZoomWhileResizing = true;
+
+    public void EndInteractiveResize()
+    {
+        if (!_holdZoomWhileResizing) return;
+        _holdZoomWhileResizing = false;
+        if (_laidOut && FitMode != FitMode.Custom)
+            ApplyZoom(ComputeFitZoom(), TopCenterAnchor(), requestTiles: true);
+    }
+
+    public event EventHandler? RotationChanged;
+    public event EventHandler? LayoutModeChanged;
+
+    private void ResetViews()
+    {
+        foreach (var view in _views.Values)
+        {
+            view.Unbind();
+            _pool.Push(view);
+        }
+        _views.Clear();
+        _tiles.Clear();
+    }
 
     // ---------------- Zoom & navigation ----------------
 
@@ -149,12 +222,33 @@ public sealed partial class PdfViewer : UserControl
     public void ZoomIn() => SetZoom(ZoomSteps.FirstOrDefault(z => z > Zoom * 1.01, MaxZoom));
     public void ZoomOut() => SetZoom(ZoomSteps.LastOrDefault(z => z < Zoom / 1.01, MinZoom));
 
-    public void GoToPage(int index, double? normalizedY = null)
+    /// <param name="normalizedY">Point on the page to bring near the top (unrotated page coordinates, 0..1).</param>
+    public void GoToPage(int index, double? normalizedY = null, bool scrollToBottom = false)
     {
         if (!_laidOut || PageCount == 0) return;
         index = Math.Clamp(index, 0, PageCount - 1);
-        double y = normalizedY is { } ny ? _top[index] + ny * _h[index] - 8 : _top[index] - PageMargin / 2;
+        if (_singlePage && index != CurrentPage)
+        {
+            CurrentPage = index;
+            Layout();
+            _scroller.UpdateLayout();
+            UpdateViewport(requestTiles: true);
+            CurrentPageChanged?.Invoke(this, EventArgs.Empty);
+        }
+        double y = normalizedY is { } ny
+            ? _top[index] + PageRotation.ToView(0.5, ny, _rotation).Y * _h[index] - 8
+            : _top[index] - PageMargin / 2;
+        if (scrollToBottom) y = _surface.Height;
+        _pendingOffset = null;
         _scroller.ChangeView(null, Math.Max(0, y) * _scroller.ZoomFactor, null, true);
+    }
+
+    private void FlipPage(int step)
+    {
+        int target = CurrentPage + step;
+        if (target < 0 || target >= PageCount) return;
+        // Going back lands at the bottom of the previous page, so reading backwards is continuous.
+        GoToPage(target, scrollToBottom: step < 0);
     }
 
     private double ComputeFitZoom()
@@ -162,11 +256,13 @@ public sealed partial class PdfViewer : UserControl
         const double k = 96.0 / 72.0;
         double vw = Math.Max(50, _scroller.ActualWidth - 2 * PageMargin);
         double vh = Math.Max(50, _scroller.ActualHeight - 2 * PageMargin);
-        double maxWidth = _doc.PageSizes.Count > 0 ? _doc.PageSizes.Max(s => s.Width) : 612;
+        double maxWidth = PageCount == 0 ? 612
+            : _singlePage ? ShownSize(CurrentPage).Width
+            : Enumerable.Range(0, PageCount).Max(i => ShownSize(i).Width);
         if (FitMode == FitMode.FitWidth)
             return Math.Clamp(vw / (maxWidth * k), MinZoom, MaxZoom);
 
-        var size = _doc.PageSizes.Count > 0 ? _doc.PageSizes[CurrentPage] : new PageSize(612, 792);
+        var size = PageCount > 0 ? ShownSize(CurrentPage) : new PageSize(612, 792);
         return Math.Clamp(Math.Min(vw / (size.Width * k), vh / (size.Height * k)), MinZoom, MaxZoom);
     }
 
@@ -218,25 +314,29 @@ public sealed partial class PdfViewer : UserControl
     {
         double k = _zoom * 96.0 / 72.0;
         double s = RasterScale;
-        var sizes = _doc.PageSizes;
+        int n = PageCount;
         double maxW = 0;
-        for (int i = 0; i < sizes.Count; i++)
+        for (int i = 0; i < n; i++)
         {
-            _w[i] = sizes[i].Width * k;
-            _h[i] = sizes[i].Height * k;
-            maxW = Math.Max(maxW, _w[i]);
+            var size = ShownSize(i);
+            _w[i] = size.Width * k;
+            _h[i] = size.Height * k;
+            if (!_singlePage || i == CurrentPage) maxW = Math.Max(maxW, _w[i]);
         }
 
         double contentW = Math.Max(_scroller.ActualWidth, maxW + 2 * PageMargin);
         double y = PageMargin;
-        for (int i = 0; i < sizes.Count; i++)
+        for (int i = 0; i < n; i++)
         {
             // Snap to device pixels so tiles line up without seams.
             _left[i] = Math.Round((contentW - _w[i]) / 2 * s) / s;
             _top[i] = Math.Round(y * s) / s;
-            y += _h[i] + PageGap;
+            // Single page: every page sits in the same slot; only the current one is shown.
+            if (!_singlePage) y += _h[i] + PageGap;
         }
-        double contentH = Math.Max(y - PageGap + PageMargin, _scroller.ActualHeight);
+        double contentH = _singlePage && n > 0
+            ? Math.Max(_h[CurrentPage] + 2 * PageMargin, _scroller.ActualHeight)
+            : Math.Max(y - PageGap + PageMargin, _scroller.ActualHeight);
 
         _surface.Width = contentW;
         _surface.Height = contentH;
@@ -271,6 +371,7 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Last page whose top is at or above <paramref name="y"/> (content DIPs).</summary>
     private int PageAtY(double y)
     {
+        if (_singlePage) return CurrentPage;
         int lo = 0, hi = PageCount - 1, result = 0;
         while (lo <= hi)
         {
@@ -289,7 +390,31 @@ public sealed partial class PdfViewer : UserControl
         if (!_laidOut)
         {
             StartupTrace.Mark("first_layout");
-            ApplyZoom(FitMode == FitMode.Custom ? 1 : ComputeFitZoom(), null, requestTiles: true);
+            double zoom = 1;
+            if (InitialState is { } state)
+            {
+                _rotation = PageRotation.Normalize(state.Rotation);
+                _previews.Rotation = _rotation;
+                _singlePage = state.SinglePage;
+                FitMode = state.FitMode;
+                zoom = state.Zoom;
+                CurrentPage = Math.Clamp(state.Page, 0, PageCount - 1);
+            }
+            ApplyZoom(FitMode == FitMode.Custom ? zoom : ComputeFitZoom(), null, requestTiles: true);
+            if (InitialState is { } restored)
+            {
+                // The ScrollViewer ignores ChangeView during its first layout pass; scroll on the next tick.
+                int page = Math.Clamp(restored.Page, 0, PageCount - 1);
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => GoToPage(page));
+            }
+            InitialState = null;
+        }
+        else if (_holdZoomWhileResizing)
+        {
+            // Dragging the sidebar: just re-center at the same zoom (cheap); re-fit when the drag ends.
+            Layout();
+            UpdateViewport(requestTiles: false);
+            RestartSettleTimer();
         }
         else if (FitMode != FitMode.Custom)
             ApplyZoom(ComputeFitZoom(), TopCenterAnchor(), requestTiles: false);
@@ -325,10 +450,21 @@ public sealed partial class PdfViewer : UserControl
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
         StopAutoScroll(); // the wheel takes over from autoscroll
-        if ((e.KeyModifiers & VirtualKeyModifiers.Control) == 0 || !_laidOut) return;
+        if (!_laidOut) return;
         var point = e.GetCurrentPoint(_scroller);
         int delta = point.Properties.MouseWheelDelta;
         if (delta == 0 || point.Properties.IsHorizontalMouseWheel) return;
+
+        if ((e.KeyModifiers & VirtualKeyModifiers.Control) == 0)
+        {
+            // Single page: scrolling past the bottom or top flips to the next or previous page.
+            if (_singlePage && (delta < 0 ? AtBottom : AtTop))
+            {
+                FlipPage(delta < 0 ? +1 : -1);
+                e.Handled = true;
+            }
+            return;
+        }
         e.Handled = true; // stop the ScrollViewer's own animated zoom
         WheelZoom(delta, point.Position);
     }
@@ -350,6 +486,29 @@ public sealed partial class PdfViewer : UserControl
         return ContentToPage((_scroller.HorizontalOffset + p.X) / zf, (_scroller.VerticalOffset + p.Y) / zf);
     }
 
+    private bool AtTop => _scroller.VerticalOffset <= 0.5;
+    private bool AtBottom => _scroller.VerticalOffset >= _scroller.ScrollableHeight - 0.5;
+
+    /// <summary>Single-page keys: ←/→ flip; Page Down/Space/↓ at the bottom (or Up keys at the top) flip too.</summary>
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!_singlePage || !_laidOut) return;
+        int step = e.Key switch
+        {
+            VirtualKey.Right => +1,
+            VirtualKey.Left => -1,
+            VirtualKey.PageDown or VirtualKey.Space or VirtualKey.Down when AtBottom => +1,
+            VirtualKey.PageUp or VirtualKey.Up when AtTop => -1,
+            VirtualKey.Home => -CurrentPage,
+            VirtualKey.End => PageCount - 1 - CurrentPage,
+            _ => 0,
+        };
+        if (step == 0) return;
+        if (e.Key is VirtualKey.Home or VirtualKey.End) GoToPage(CurrentPage + step);
+        else FlipPage(step);
+        e.Handled = true;
+    }
+
     private void RestartSettleTimer()
     {
         _settleTimer.Stop();
@@ -366,9 +525,12 @@ public sealed partial class PdfViewer : UserControl
         var prefetch = new Rect(viewport.X, viewport.Y - viewport.Height / 2, viewport.Width, viewport.Height * 2);
 
         var needed = new HashSet<int>();
-        for (int i = PageAtY(bufferTop); i < PageCount && _top[i] <= bufferBottom; i++)
-            if (_top[i] + _h[i] >= bufferTop)
-                needed.Add(i);
+        if (_singlePage)
+            needed.Add(CurrentPage);
+        else
+            for (int i = PageAtY(bufferTop); i < PageCount && _top[i] <= bufferBottom; i++)
+                if (_top[i] + _h[i] >= bufferTop)
+                    needed.Add(i);
 
         foreach (var (index, view) in _views.Where(kv => !needed.Contains(kv.Key)).ToList())
         {
@@ -388,6 +550,7 @@ public sealed partial class PdfViewer : UserControl
             if (visible) EnsureText(i);
         }
 
+        if (_singlePage) return; // the current page only changes by flipping
         int current = PageAtY(viewport.Top + viewport.Height * 0.3);
         if (_scroller.VerticalOffset >= _scroller.ScrollableHeight - 1 && _scroller.ScrollableHeight > 0)
             current = PageCount - 1;
@@ -463,7 +626,7 @@ public sealed partial class PdfViewer : UserControl
                 if (view.TileImages.ContainsKey(key) || view.PendingTiles.Contains(key)) continue;
                 var rect = new PixelRect(tx * TileSize, ty * TileSize,
                     Math.Min(TileSize, fullW - tx * TileSize), Math.Min(TileSize, fullH - ty * TileSize));
-                var cacheKey = new TileKey(i, fullW, tx, ty);
+                var cacheKey = new TileKey(i, fullW, tx, ty, _rotation);
                 if (_tiles.TryGet(cacheKey, out var bmp))
                 {
                     view.AddTile(key, bmp, rect, s);
@@ -483,7 +646,7 @@ public sealed partial class PdfViewer : UserControl
         RenderedBitmap rendered;
         try
         {
-            rendered = await _doc.RenderAsync(key.Page, fullW, fullH, rect, priority, ct);
+            rendered = await _doc.RenderAsync(key.Page, fullW, fullH, rect, key.Rotation, priority, ct);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or PdfException)
         {
@@ -564,7 +727,7 @@ public sealed partial class PdfViewer : UserControl
             EnsureText(page);
             return null;
         }
-        double nx = (p.X - _left[page]) / _w[page], ny = (p.Y - _top[page]) / _h[page];
+        var (nx, ny) = ToPageCoords(page, p);
         return new TextPos(page, text.CaretAt(nx, ny));
     }
 
@@ -611,8 +774,7 @@ public sealed partial class PdfViewer : UserControl
             int page = PageAtY(point.Position.Y);
             if (_texts.TryGet(page, out var text))
             {
-                double nx = (point.Position.X - _left[page]) / _w[page];
-                double ny = (point.Position.Y - _top[page]) / _h[page];
+                var (nx, ny) = ToPageCoords(page, point.Position);
                 overText = nx is >= 0 and <= 1 && ny is >= 0 and <= 1 && text.IsOverText(nx, ny);
             }
         }
@@ -646,7 +808,8 @@ public sealed partial class PdfViewer : UserControl
         var p = e.GetPosition(_surface);
         if (HitTest(p, out var text) is not { } pos || text is null) return;
         int page = pos.Page;
-        int ch = text.NearestChar((p.X - _left[page]) / _w[page], (p.Y - _top[page]) / _h[page]);
+        var (cx, cy) = ToPageCoords(page, p);
+        int ch = text.NearestChar(cx, cy);
         if (ch < 0) return;
         var (start, length) = text.WordAt(ch);
         _anchor = new TextPos(page, start);
@@ -725,9 +888,10 @@ public sealed partial class PdfViewer : UserControl
             GoToPage(hit.PageIndex);
             return;
         }
+        if (_singlePage && hit.PageIndex != CurrentPage) GoToPage(hit.PageIndex);
         float zf = _scroller.ZoomFactor;
         int p = hit.PageIndex;
-        var r = rects[0];
+        var r = PageRotation.ToView(rects[0], _rotation);
         double y = _top[p] + r.Top * _h[p];
         double x = _left[p] + r.Left * _w[p];
         double vw = _scroller.ViewportWidth / zf, vh = _scroller.ViewportHeight / zf;
@@ -778,13 +942,13 @@ public sealed partial class PdfViewer : UserControl
 
         if (hasHits)
             foreach (var hit in hits!)
-                foreach (var r in text.GetRects(hit.Start, hit.Length))
+                foreach (var r in ViewRects(text, hit.Start, hit.Length))
                     Draw(r, hit == _currentHit ? CurrentHitBrush : HitBrush);
 
         if (selection is { } sel)
         {
             _selectionBrush ??= new SolidColorBrush(SelectionColor());
-            foreach (var r in text.GetRects(sel.Start, sel.End - sel.Start))
+            foreach (var r in ViewRects(text, sel.Start, sel.End - sel.Start))
                 Draw(r, _selectionBrush);
         }
     }
@@ -807,7 +971,14 @@ public sealed partial class PdfViewer : UserControl
         return Windows.UI.Color.FromArgb(0x60, accent.R, accent.G, accent.B);
     }
 
-    private readonly record struct TileKey(int Page, int FullWidth, int X, int Y);
+    /// <summary>A surface point as unrotated normalized page coordinates (what <see cref="PageText"/> uses).</summary>
+    private (double X, double Y) ToPageCoords(int page, Point p) =>
+        PageRotation.FromView((p.X - _left[page]) / _w[page], (p.Y - _top[page]) / _h[page], _rotation);
+
+    private IEnumerable<NormRect> ViewRects(PageText text, int start, int count) =>
+        text.GetRects(start, count).Select(r => PageRotation.ToView(r, _rotation));
+
+    private readonly record struct TileKey(int Page, int FullWidth, int X, int Y, int Rotation);
 
     private readonly record struct TextPos(int Page, int Caret) : IComparable<TextPos>
     {

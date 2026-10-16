@@ -17,6 +17,10 @@ public partial class App : Application
         _benchmark = benchmark;
         InitializeComponent();
         UnhandledException += (_, e) => CrashLog.Write(e.Exception);
+        // Dev aid: --trace-exceptions prints every exception as it's thrown (finds crashes in dispatcher callbacks).
+        if (args.Contains("--trace-exceptions"))
+            AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+                Console.Error.WriteLine($"FIRST_CHANCE {e.Exception.GetType().Name}: {e.Exception.Message}\n{Environment.StackTrace}");
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

@@ -26,6 +26,24 @@ public sealed class PreviewCache(PdfDocument doc)
 
     private readonly LruCache<int, WriteableBitmap> _cache = new(200);
     private readonly Dictionary<int, Task<WriteableBitmap?>> _inFlight = new();
+    private int _rotation;
+
+    /// <summary>View rotation (quarter turns clockwise); changing it drops cached previews.</summary>
+    public int Rotation
+    {
+        get => _rotation;
+        set
+        {
+            value = CleanPDF.Engine.Rotation.Normalize(value);
+            if (value == _rotation) return;
+            _rotation = value;
+            _cache.Clear();
+            _inFlight.Clear();
+            RotationChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public event EventHandler? RotationChanged;
 
     public bool TryGet(int page, out WriteableBitmap bitmap) => _cache.TryGet(page, out bitmap);
 
@@ -43,14 +61,16 @@ public sealed class PreviewCache(PdfDocument doc)
 
     private async Task<WriteableBitmap?> LoadAsync(int page, WorkPriority priority)
     {
+        int rotation = _rotation;
         try
         {
-            var size = doc.PageSizes[page];
+            var size = CleanPDF.Engine.Rotation.Apply(doc.PageSizes[page], rotation);
             double scale = PixelWidth / Math.Max(size.Width, size.Height * 0.75);
             int w = Math.Max(1, (int)Math.Round(size.Width * scale));
             int h = Math.Max(1, (int)Math.Round(size.Height * scale));
-            var rendered = await doc.RenderAsync(page, w, h, priority);
+            var rendered = await doc.RenderAsync(page, w, h, new PixelRect(0, 0, w, h), rotation, priority);
             var bmp = Bitmaps.ToBitmap(rendered);
+            if (rotation != _rotation) return null; // rotated again while rendering
             _cache.Add(page, bmp);
             return bmp;
         }
@@ -60,7 +80,7 @@ public sealed class PreviewCache(PdfDocument doc)
         }
         finally
         {
-            _inFlight.Remove(page);
+            if (rotation == _rotation) _inFlight.Remove(page);
         }
     }
 }

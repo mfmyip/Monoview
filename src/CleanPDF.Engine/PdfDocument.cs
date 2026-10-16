@@ -73,8 +73,17 @@ public sealed class PdfDocument : IDisposable
     /// so tiles of one page line up exactly. Pixels are premultiplied BGRA.
     /// </summary>
     public Task<RenderedBitmap> RenderAsync(int pageIndex, int fullWidth, int fullHeight, PixelRect region,
+        WorkPriority priority = WorkPriority.High, CancellationToken ct = default) =>
+        RenderAsync(pageIndex, fullWidth, fullHeight, region, 0, priority, ct);
+
+    /// <summary>
+    /// Renders part of a page turned <paramref name="rotation"/> quarter turns clockwise (view rotation).
+    /// <paramref name="fullWidth"/> x <paramref name="fullHeight"/> is the size of the rotated page.
+    /// </summary>
+    public Task<RenderedBitmap> RenderAsync(int pageIndex, int fullWidth, int fullHeight, PixelRect region, int rotation,
         WorkPriority priority = WorkPriority.High, CancellationToken ct = default)
     {
+        int rotate = Rotation.Normalize(rotation);
         if (region.Width <= 0 || region.Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(region), "Region must have a positive size.");
 
@@ -88,7 +97,7 @@ public sealed class PdfDocument : IDisposable
             try
             {
                 fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
-                fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, 0,
+                fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, rotate,
                     RenderFlagAnnot | RenderFlagLcdText);
             }
             finally
@@ -103,7 +112,72 @@ public sealed class PdfDocument : IDisposable
     /// <summary>Renders a whole page to fit the given pixel size.</summary>
     public Task<RenderedBitmap> RenderAsync(int pageIndex, int width, int height,
         WorkPriority priority = WorkPriority.High, CancellationToken ct = default) =>
-        RenderAsync(pageIndex, width, height, new PixelRect(0, 0, width, height), priority, ct);
+        RenderAsync(pageIndex, width, height, new PixelRect(0, 0, width, height), 0, priority, ct);
+
+    /// <summary>File and metadata details for the Document properties dialog.</summary>
+    public Task<DocumentProperties> GetPropertiesAsync() => PdfiumThread.Run(() =>
+    {
+        var doc = Doc;
+        string? Meta(string tag)
+        {
+            ulong bytes = fpdf_doc.FPDF_GetMetaText(doc, tag, IntPtr.Zero, 0);
+            if (bytes <= 2) return null;
+            var buffer = new byte[bytes];
+            var handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                fpdf_doc.FPDF_GetMetaText(doc, tag, handle.AddrOfPinnedObject(), bytes);
+            }
+            finally
+            {
+                handle.Free();
+            }
+            string value = Encoding.Unicode.GetString(buffer, 0, (int)bytes - 2).Trim();
+            return value.Length == 0 ? null : value;
+        }
+
+        int version = 0;
+        string pdfVersion = fpdfview.FPDF_GetFileVersion(doc, ref version) != 0 ? $"{version / 10}.{version % 10}" : "unknown";
+        long size = new FileInfo(Path).Length;
+        return new DocumentProperties(
+            Meta("Title"), Meta("Author"), Meta("Subject"), Meta("Keywords"), Meta("Creator"), Meta("Producer"),
+            ParsePdfDate(Meta("CreationDate")), ParsePdfDate(Meta("ModDate")),
+            pdfVersion, fpdfview.FPDF_GetSecurityHandlerRevision(doc) != -1, size, PageCount,
+            PageCount > 0 ? _pageSizes[0] : new PageSize(0, 0));
+    }, WorkPriority.Low);
+
+    /// <summary>Parses a PDF date like "D:20230808142530+02'00'" (most parts optional).</summary>
+    public static DateTimeOffset? ParsePdfDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        string s = value.Trim();
+        if (s.StartsWith("D:", StringComparison.Ordinal)) s = s[2..];
+        string digits = new(s.TakeWhile(char.IsDigit).ToArray());
+        if (digits.Length < 4) return null;
+        int Part(int start, int length, int fallback) =>
+            digits.Length >= start + length ? int.Parse(digits.Substring(start, length)) : fallback;
+        try
+        {
+            var offset = TimeSpan.Zero;
+            string rest = s[digits.Length..];
+            if (rest.Length > 0 && (rest[0] == '+' || rest[0] == '-'))
+            {
+                var tz = new string(rest[1..].Where(char.IsDigit).ToArray());
+                int hours = tz.Length >= 2 ? int.Parse(tz[..2]) : 0;
+                int minutes = tz.Length >= 4 ? int.Parse(tz.Substring(2, 2)) : 0;
+                offset = new TimeSpan(hours, minutes, 0) * (rest[0] == '-' ? -1 : 1);
+            }
+            return new DateTimeOffset(Part(0, 4, 1), Part(4, 2, 1), Part(6, 2, 1),
+                Part(8, 2, 0), Part(10, 2, 0), Part(12, 2, 0), offset);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Page handle for <see cref="PdfPrinter"/>; only valid on the PDFium thread.</summary>
+    internal FpdfPageT GetPageForPrinting(int index) => GetPage(index);
 
     /// <summary>
     /// Loads and parses a page ahead of time (e.g. page 1 while the window is still being
@@ -377,6 +451,11 @@ public sealed class PdfDocument : IDisposable
 }
 
 public sealed record RenderedBitmap(int Width, int Height, byte[] Bgra);
+
+public sealed record DocumentProperties(
+    string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
+    DateTimeOffset? Created, DateTimeOffset? Modified,
+    string PdfVersion, bool Encrypted, long FileSize, int PageCount, PageSize FirstPageSize);
 
 public sealed record OutlineItem(string Title, int PageIndex, double? X, double? Y, IReadOnlyList<OutlineItem> Children);
 

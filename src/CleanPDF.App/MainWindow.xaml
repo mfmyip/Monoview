@@ -73,7 +73,19 @@
                                 <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="Open recent">
                                     <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutSubItem.Icon>
                                 </MenuFlyoutSubItem>
+                                <MenuFlyoutItem x:Name="ReloadItem" Text="Reload" Click="Reload_Click" KeyboardAcceleratorTextOverride="F5">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="PrintItem" Text="Print…" Click="Print_Click" KeyboardAcceleratorTextOverride="Ctrl+P">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE749;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="PropertiesItem" Text="Document properties" Click="Properties_Click" KeyboardAcceleratorTextOverride="Ctrl+D">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
                                 <MenuFlyoutItem x:Name="CloseTabItem" Text="Close tab" Click="CloseTab_Click" KeyboardAcceleratorTextOverride="Ctrl+W" />
+                                <MenuFlyoutItem x:Name="CloseAllItem" Text="Close all tabs" Click="CloseAll_Click" KeyboardAcceleratorTextOverride="Ctrl+Shift+W" />
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem x:Name="ShowInExplorerItem" Text="Show in File Explorer" Click="ShowInExplorer_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEC50;" /></MenuFlyoutItem.Icon>
@@ -103,6 +115,13 @@
                                 <MenuFlyoutItem Text="Actual size" Click="ActualSize_Click" KeyboardAcceleratorTextOverride="Ctrl+0" />
                                 <MenuFlyoutItem Text="Fit width" Click="FitWidth_Click" KeyboardAcceleratorTextOverride="Ctrl+8" />
                                 <MenuFlyoutItem Text="Fit page" Click="FitPage_Click" KeyboardAcceleratorTextOverride="Ctrl+9" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Rotate clockwise" Click="RotateRight_Click" KeyboardAcceleratorTextOverride="Ctrl+R">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7AD;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Rotate counter-clockwise" Click="RotateLeft_Click" KeyboardAcceleratorTextOverride="Ctrl+L" />
+                                <ToggleMenuFlyoutItem x:Name="SinglePageItem" Text="Single page" Click="SinglePage_Click" />
+                                <ToggleMenuFlyoutItem x:Name="FullScreenItem" Text="Full screen" Click="FullScreen_Click" KeyboardAcceleratorTextOverride="F11" />
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Go to page…" Click="GoToPage_Click" KeyboardAcceleratorTextOverride="Ctrl+G" />
                                 <MenuFlyoutItem Text="Next tab" Click="NextTab_Click" KeyboardAcceleratorTextOverride="Ctrl+Tab" />

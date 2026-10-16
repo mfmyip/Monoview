@@ -12,7 +12,11 @@ internal static class HelpDialogs
     [
         ("Files", [
             ("Ctrl+O", "Open a PDF"),
+            ("F5", "Reload from disk"),
+            ("Ctrl+P", "Print"),
+            ("Ctrl+D", "Document properties"),
             ("Ctrl+W", "Close tab"),
+            ("Ctrl+Shift+W", "Close all tabs"),
             ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"),
             ("Ctrl+,", "Settings"),
         ]),
@@ -23,6 +27,9 @@ internal static class HelpDialogs
             ("Ctrl+0", "Actual size"),
             ("Ctrl+8 / Ctrl+9", "Fit width / fit page"),
             ("Ctrl+G", "Go to page"),
+            ("Ctrl+R / Ctrl+L", "Rotate clockwise / counter-clockwise"),
+            ("F11", "Full screen (Esc to leave)"),
+            ("← / →", "Previous / next page (single page view)"),
             ("Middle-click", "Autoscroll (click again or Esc to stop)"),
         ]),
         ("Find and select", [
