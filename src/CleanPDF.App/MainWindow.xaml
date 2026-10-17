@@ -9,7 +9,8 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid x:Name="Root" AllowDrop="True" KeyboardAcceleratorPlacementMode="Hidden" DragOver="Root_DragOver" Drop="Root_Drop">
+    <!-- Transparent, not empty: without a background the bare areas (most of the start page) ignore file drops. -->
+    <Grid x:Name="Root" Background="Transparent" AllowDrop="True" KeyboardAcceleratorPlacementMode="Hidden" DragOver="Root_DragOver" Drop="Root_Drop">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -133,6 +134,7 @@
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Insert pages from file…" Tag="InsertFromFile" Click="PagesMenu_Click" />
                                 <MenuFlyoutItem Text="Extract pages to a new PDF…" Tag="Extract" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Export pages as pictures…" Tag="ExportImages" Click="PagesMenu_Click" />
                             </MenuFlyoutSubItem>
                             <MenuFlyoutSubItem x:Name="ViewMenu" Text="View">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE890;" /></MenuFlyoutSubItem.Icon>

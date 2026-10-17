@@ -7,7 +7,13 @@ using Windows.System;
 
 namespace CleanPDF.App;
 
-public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, Extract }
+public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, Extract, ExportImages }
+
+public static class PageActions
+{
+    /// <summary>Extracting and exporting write new files and leave this one alone, so they work without Edit pages.</summary>
+    public static bool NeedsEditing(string? tag) => tag is not (nameof(PageAction.Extract) or nameof(PageAction.ExportImages));
+}
 
 /// <summary>A page operation asked for in the sidebar; the window runs it, so it can be undone.</summary>
 public sealed record PageRequest(PageAction Action, IReadOnlyList<int> Pages, int Destination = 0, string? FilePath = null);
@@ -57,7 +63,7 @@ public sealed partial class DocumentView
     {
         EditPagesMenuItem.IsChecked = _pageEditing;
         foreach (var item in PageMenu.Items.OfType<MenuFlyoutItem>().Where(i => i is not ToggleMenuFlyoutItem))
-            item.IsEnabled = _pageEditing || (string?)item.Tag == nameof(PageAction.Extract); // extracting doesn't change this file
+            item.IsEnabled = _pageEditing || !PageActions.NeedsEditing((string?)item.Tag);
     }
 
     /// <summary>Selected pages in page order, or the current page when none are selected.</summary>
@@ -126,7 +132,7 @@ public sealed partial class DocumentView
         {
             int at = InsertionIndexAt(e.GetPosition(Thumbnails).Y);
             foreach (var file in (await e.DataView.GetStorageItemsAsync()).OfType<StorageFile>()
-                         .Where(f => f.FileType.Equals(".pdf", StringComparison.OrdinalIgnoreCase)).Reverse())
+                         .Where(f => DocumentFiles.CanOpen(f.Path)).Reverse())
                 PageRequested?.Invoke(this, new PageRequest(PageAction.InsertFromFile, [], at, file.Path));
         }
         finally

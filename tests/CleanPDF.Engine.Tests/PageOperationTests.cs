@@ -72,8 +72,8 @@ public class PageOperationTests
         try
         {
             using var doc = await OpenSample();
-            int added = await doc.InsertPagesFromAsync(SamplePdf.Path, null, 1);
-            Assert.Equal(3, added);
+            using (var source = await PdfDocument.OpenAsync(SamplePdf.Path))
+                Assert.Equal(3, await doc.InsertPagesFromAsync(source, 1));
             Assert.Equal(["Hello", "Hello", "Rotated", "hello", "Rotated", "hello"], await FirstWords(doc));
 
             await doc.ExtractPagesAsync([5, 0], extracted);
@@ -85,6 +85,35 @@ public class PageOperationTests
         {
             File.Delete(extracted);
         }
+    }
+
+    [Fact]
+    public async Task Inserts_a_password_protected_pdf_opened_with_its_password()
+    {
+        string locked = EncryptedPdf.Write(TempPath());
+        try
+        {
+            using var doc = await OpenSample();
+            using (var source = await PdfDocument.OpenAsync(locked, EncryptedPdf.Password))
+                Assert.Equal(1, await doc.InsertPagesFromAsync(source, 0));
+            Assert.Equal(4, doc.PageCount);
+            Assert.StartsWith(EncryptedPdf.Text, (await doc.GetTextAsync(0)).Text);
+        }
+        finally
+        {
+            File.Delete(locked);
+        }
+    }
+
+    [Fact]
+    public async Task Inserts_a_picture_as_a_page()
+    {
+        using var doc = await OpenSample();
+        var white = Enumerable.Repeat((byte)255, 40 * 4 * 20).ToArray();
+        using (var picture = await PdfDocument.FromImageAsync(@"C:\pictures\note.png", 40, 20, white, 72, 72))
+            Assert.Equal(1, await doc.InsertPagesFromAsync(picture, 3));
+        Assert.Equal(4, doc.PageCount);
+        Assert.Equal(40, doc.PageSizes[3].Width, 1);
     }
 
     [Fact]

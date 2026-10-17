@@ -990,9 +990,8 @@ public sealed partial class MainWindow : Window
         RedoItem.IsEnabled = history?.CanRedo ?? false;
         PagesMenu.IsEnabled = view is not null;
         EditPagesMenuItem.IsChecked = _pageEditing;
-        // Page actions need editing on; extracting is allowed since it doesn't change this file.
         foreach (var item in PagesMenu.Items.OfType<MenuFlyoutItem>().Where(i => i is not ToggleMenuFlyoutItem))
-            item.IsEnabled = _pageEditing || (string?)item.Tag == nameof(PageAction.Extract);
+            item.IsEnabled = _pageEditing || !PageActions.NeedsEditing((string?)item.Tag);
         SinglePageItem.IsChecked = view?.Viewer.SinglePage ?? false;
         TwoPageItem.IsChecked = view?.Viewer.TwoPage ?? false;
         BackItem.IsEnabled = view?.Viewer.CanGoBack ?? false;
@@ -1266,6 +1265,17 @@ public sealed partial class MainWindow : Window
                     Console.Out.WriteLine($"UNDO_SCROLL before={before:F0} after_undo={undone:F0} after_redo={Offset():F0} views={DocumentHost.Children.OfType<DocumentView>().Count()}");
                 }
                 if (args.Contains("--edit-pages")) { SetPageEditing(true); await Task.Delay(500); }
+                if (Arg("--insert-test") is { } insertPath)
+                {
+                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.InsertFromFile, [], 0, insertPath));
+                    await Task.Delay(800);
+                    Console.Out.WriteLine($"INSERTED count={CurrentView?.Document.PageCount} size1={CurrentView?.Document.PageSizes[0]} error={(ErrorBar.Severity == InfoBarSeverity.Error && ErrorBar.IsOpen ? ErrorBar.Message : "none")}");
+                }
+                if (Arg("--export-test") is { } exportTarget)
+                {
+                    var written = await ExportImagesAsync(CurrentView!.Document, [0, 1], exportTarget);
+                    Console.Out.WriteLine($"EXPORTED {string.Join(" | ", written.Select(f => $"{Path.GetFileName(f)} {new FileInfo(f).Length} bytes"))}");
+                }
                 if (Arg("--pages-test") is { } insertFile)
                 {
                     async Task Step(string name, Func<Task> action)

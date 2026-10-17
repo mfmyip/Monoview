@@ -75,6 +75,7 @@
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutItem Text="Extract pages to a new PDF…" Tag="Extract" Click="PageMenu_Click" />
+                        <MenuFlyoutItem Text="Export pages as pictures…" Tag="ExportImages" Click="PageMenu_Click" />
                     </MenuFlyout>
                 </ListView.ContextFlyout>
                 <ListView.ItemTemplate>

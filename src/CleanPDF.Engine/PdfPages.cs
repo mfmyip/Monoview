@@ -45,25 +45,18 @@ public sealed partial class PdfDocument
         PagesChanged();
     });
 
-    /// <summary>Inserts all pages of another PDF before page <paramref name="atIndex"/>. Returns how many were added.</summary>
-    public Task<int> InsertPagesFromAsync(string path, string? password, int atIndex) => PdfiumThread.Run(() =>
+    /// <summary>
+    /// Inserts all pages of <paramref name="source"/>, an open document such as a password-protected PDF or a picture,
+    /// before page <paramref name="atIndex"/>. Returns how many were added. <paramref name="source"/> is unchanged.
+    /// </summary>
+    public Task<int> InsertPagesFromAsync(PdfDocument source, int atIndex) => PdfiumThread.Run(() =>
     {
-        var source = fpdfview.FPDF_LoadDocument(path, password);
-        if (IsNull(source)) ThrowOpenError(path, password);
-        try
-        {
-            int count = fpdfview.FPDF_GetPageCount(source);
-            atIndex = Math.Clamp(atIndex, 0, PageCount);
-            _openPages.Clear();
-            if (FPDF_ImportPagesByIndex(Doc.__Instance, source.__Instance, null, 0, atIndex) == 0)
-                throw new PdfException($"Could not insert the pages of {System.IO.Path.GetFileName(path)}.");
-            PagesChanged();
-            return count;
-        }
-        finally
-        {
-            fpdfview.FPDF_CloseDocument(source);
-        }
+        atIndex = Math.Clamp(atIndex, 0, PageCount);
+        _openPages.Clear();
+        if (FPDF_ImportPagesByIndex(Doc.__Instance, source.Doc.__Instance, null, 0, atIndex) == 0)
+            throw new PdfException($"Could not insert the pages of {System.IO.Path.GetFileName(source.Path)}.");
+        PagesChanged();
+        return source.PageCount;
     });
 
     /// <summary>Writes the given pages, in order, to a new PDF at <paramref name="path"/>. This document is unchanged.</summary>

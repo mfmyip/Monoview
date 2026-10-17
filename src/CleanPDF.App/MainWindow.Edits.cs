@@ -65,9 +65,29 @@ public sealed partial class MainWindow
         var doc = view.Document;
         var pages = request.Pages;
 
-        // Pickers first, so cancelling doesn't leave an empty undo step.
+        // Pickers and prompts first, so cancelling doesn't leave an empty undo step.
         string? file = request.FilePath;
-        if (request.Action == PageAction.InsertFromFile && file is null && (file = await PickPdfAsync()) is null) return;
+        PdfDocument? source = null;
+        if (request.Action == PageAction.InsertFromFile)
+        {
+            if (file is null && (file = await PickInsertFileAsync()) is null) return;
+            if ((source = await OpenToInsertAsync(file)) is null) return;
+        }
+        if (request.Action == PageAction.ExportImages)
+        {
+            string? target = await PickImageTargetAsync(doc.Path, pages);
+            if (target is null) return;
+            try
+            {
+                var written = await ExportImagesAsync(doc, pages, target);
+                ShowInfo(written.Count == 1 ? $"Saved {Path.GetFileName(written[0])}" : $"Saved {written.Count} pictures to {Path.GetDirectoryName(target)}");
+            }
+            catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
+            {
+                ShowError("Couldn't export the pages", ex.Message);
+            }
+            return; // exporting doesn't change this document
+        }
         if (request.Action == PageAction.Extract)
         {
             string? target = await PickExtractTargetAsync(doc.Path, pages);
@@ -111,7 +131,7 @@ public sealed partial class MainWindow
                     break;
                 case PageAction.InsertFromFile:
                     int at = Math.Clamp(request.Destination, 0, doc.PageCount);
-                    int added = await doc.InsertPagesFromAsync(file!, null, at);
+                    int added = await doc.InsertPagesFromAsync(source!, at);
                     var inserted = Enumerable.Range(at, added).ToList();
                     ReplaceView(tab, view, doc, closeOldDocument: false, page: at, select: inserted);
                     ShowInfo($"Inserted {added} page{(added == 1 ? "" : "s")} from {Path.GetFileName(file)}");
@@ -121,10 +141,63 @@ public sealed partial class MainWindow
         catch (PdfException ex)
         {
             history.DropLast();
-            ShowError("Couldn't change the pages", ex is PdfPasswordException
-                ? "Password-protected PDFs can't be inserted yet. Open it, then Save As without changes, or remove the password first."
-                : ex.Message);
+            ShowError("Couldn't change the pages", ex.Message);
         }
+        finally
+        {
+            source?.Dispose();
+        }
+    }
+
+    /// <summary>Opens a PDF or a picture to insert its pages, asking for the password if it has one. Null when cancelled or unreadable.</summary>
+    private async Task<PdfDocument?> OpenToInsertAsync(string path)
+    {
+        try
+        {
+            return await DocumentFiles.OpenAsync(path);
+        }
+        catch (PdfPasswordException)
+        {
+            return await AskPasswordAndOpenAsync(path);
+        }
+        catch (PdfException ex)
+        {
+            ShowError($"Couldn't open {Path.GetFileName(path)}", ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Writes each page as a picture at 150 DPI, PNG or JPEG by <paramref name="target"/>'s extension. One page goes to
+    /// <paramref name="target"/>; several get " page N" added to its name. Returns the files written.
+    /// </summary>
+    private static async Task<List<string>> ExportImagesAsync(PdfDocument doc, IReadOnlyList<int> pages, string target)
+    {
+        const double Dpi = 150, MaxPixels = 10000;
+        bool jpeg = Path.GetExtension(target).ToLowerInvariant() is ".jpg" or ".jpeg";
+        var written = new List<string>();
+        foreach (int page in pages)
+        {
+            var size = doc.PageSizes[page];
+            double scale = Math.Min(Dpi / 72, MaxPixels / Math.Max(size.Width, size.Height));
+            int w = Math.Max(1, (int)Math.Round(size.Width * scale)), h = Math.Max(1, (int)Math.Round(size.Height * scale));
+            var rendered = await doc.RenderAsync(page, w, h);
+
+            using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                jpeg ? Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId : Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+            encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Ignore,
+                (uint)w, (uint)h, scale * 72, scale * 72, rendered.Bgra);
+            await encoder.FlushAsync();
+            stream.Seek(0);
+
+            string path = pages.Count == 1 ? target
+                : Path.Combine(Path.GetDirectoryName(target)!, $"{Path.GetFileNameWithoutExtension(target)} page {page + 1}{Path.GetExtension(target)}");
+            using (var file = File.Create(path))
+                await stream.AsStreamForRead().CopyToAsync(file);
+            written.Add(path);
+        }
+        return written;
     }
 
     /// <summary>Undo (or redo): reopens the document as it was before (or after) the last edit.</summary>
@@ -141,12 +214,23 @@ public sealed partial class MainWindow
         ReplaceView(tab, view, restored, closeOldDocument: true);
     }
 
-    private async Task<string?> PickPdfAsync()
+    private async Task<string?> PickInsertFileAsync()
     {
         var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        picker.FileTypeFilter.Add(".pdf");
+        foreach (string extension in DocumentFiles.Extensions)
+            picker.FileTypeFilter.Add(extension);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
         return (await picker.PickSingleFileAsync())?.Path;
+    }
+
+    private async Task<string?> PickImageTargetAsync(string source, IReadOnlyList<int> pages)
+    {
+        string name = Path.GetFileNameWithoutExtension(source);
+        var picker = new FileSavePicker { SuggestedFileName = pages.Count == 1 ? $"{name} page {pages[0] + 1}" : name };
+        picker.FileTypeChoices.Add("PNG picture", new List<string> { ".png" });
+        picker.FileTypeChoices.Add("JPEG picture", new List<string> { ".jpg" });
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        return (await picker.PickSaveFileAsync())?.Path;
     }
 
     private async Task<string?> PickExtractTargetAsync(string source, IReadOnlyList<int> pages)
