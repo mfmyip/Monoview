@@ -20,7 +20,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
     private bool _syncingThumbs;
     private bool _outlineLoaded;
 
-    public PdfDocument Document { get; }
+    public PdfDocument Document { get; private set; }
     public PdfViewer Viewer { get; }
     public string SearchQuery { get; private set; } = "";
     public int CurrentHitIndex { get; private set; } = -1;
@@ -40,13 +40,16 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
         BuildThumbnails();
         // A page with new markup gets a fresh thumbnail.
+        // A changed page gets a fresh thumbnail; the old one stays up until it's drawn.
         _previews.PageInvalidated += (_, page) =>
         {
             if (page < _thumbs.Count && _thumbs[page].Image is not null)
-            {
-                _thumbs[page].Image = null;
                 _ = LoadThumbnailAsync(_thumbs[page]);
-            }
+        };
+        _previews.DocumentReplaced += (_, _) =>
+        {
+            foreach (var thumb in _thumbs.Where(t => t.Image is not null))
+                _ = LoadThumbnailAsync(thumb);
         };
         // Rotating the view rotates the thumbnails too.
         _previews.RotationChanged += (_, _) =>
@@ -172,6 +175,13 @@ public sealed partial class DocumentView : UserControl, IDisposable
         }
     }
 
+    /// <summary>Shows <paramref name="doc"/>, which has the same pages, in this view (undo, redo, save). The caller closes the old one.</summary>
+    public void ReplaceDocument(PdfDocument doc)
+    {
+        Document = doc;
+        Viewer.ReplaceDocument(doc);
+    }
+
     /// <summary>Pages to select in the sidebar once it's filled (set by the window after a page operation).</summary>
     public IReadOnlyList<int>? SelectAfterLoad { get; set; }
 
@@ -217,8 +227,10 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
     private async Task LoadThumbnailAsync(ThumbnailItem item)
     {
+        var doc = Document;
         var bmp = await _previews.GetAsync(item.Index, WorkPriority.Low);
         if (bmp is not null) item.Image = bmp;
+        else if (doc != Document) _ = LoadThumbnailAsync(item); // replaced while loading: load from the new one
     }
 
     // ---------------- Sidebar tabs & outline ----------------

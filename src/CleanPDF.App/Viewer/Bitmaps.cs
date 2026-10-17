@@ -24,6 +24,23 @@ public sealed class PreviewCache(PdfDocument doc)
 {
     public const int PixelWidth = 280;
 
+    private PdfDocument _doc = doc;
+
+    /// <summary>The document previews come from; setting it drops them all and redraws each one on request.</summary>
+    public PdfDocument Document
+    {
+        get => _doc;
+        set
+        {
+            _doc = value;
+            _cache.Clear();
+            _inFlight.Clear();
+            DocumentReplaced?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public event EventHandler? DocumentReplaced;
+
     private readonly LruCache<int, WriteableBitmap> _cache = new(200);
     private readonly Dictionary<int, Task<WriteableBitmap?>> _inFlight = new();
     private int _rotation;
@@ -72,15 +89,16 @@ public sealed class PreviewCache(PdfDocument doc)
     private async Task<WriteableBitmap?> LoadAsync(int page, WorkPriority priority)
     {
         int rotation = _rotation;
+        var source = _doc;
         try
         {
-            var size = CleanPDF.Engine.Rotation.Apply(doc.PageSizes[page], rotation);
+            var size = CleanPDF.Engine.Rotation.Apply(source.PageSizes[page], rotation);
             double scale = PixelWidth / Math.Max(size.Width, size.Height * 0.75);
             int w = Math.Max(1, (int)Math.Round(size.Width * scale));
             int h = Math.Max(1, (int)Math.Round(size.Height * scale));
-            var rendered = await doc.RenderAsync(page, w, h, new PixelRect(0, 0, w, h), rotation, priority);
+            var rendered = await source.RenderAsync(page, w, h, new PixelRect(0, 0, w, h), rotation, priority);
             var bmp = Bitmaps.ToBitmap(rendered);
-            if (rotation != _rotation) return null; // rotated again while rendering
+            if (rotation != _rotation || source != _doc) return null; // rotated or replaced while rendering
             _cache.Add(page, bmp);
             return bmp;
         }
@@ -90,7 +108,7 @@ public sealed class PreviewCache(PdfDocument doc)
         }
         finally
         {
-            if (rotation == _rotation) _inFlight.Remove(page);
+            if (rotation == _rotation && source == _doc) _inFlight.Remove(page);
         }
     }
 }

@@ -1257,12 +1257,13 @@ public sealed partial class MainWindow : Window
                     CurrentView?.Viewer.GoToPage(CurrentView.Viewer.CurrentPage, normalizedY: 0.4); // part way down a page, not at its top
                     await Task.Delay(500);
                     double? before = Offset();
+                    CurrentView?.SelectSidebarTab("pages");
                     await StepHistoryAsync(redo: false);
                     await Task.Delay(1000);
                     double? undone = Offset();
                     await StepHistoryAsync(redo: true);
                     await Task.Delay(1000);
-                    Console.Out.WriteLine($"UNDO_SCROLL before={before:F0} after_undo={undone:F0} after_redo={Offset():F0}");
+                    Console.Out.WriteLine($"UNDO_SCROLL before={before:F0} after_undo={undone:F0} after_redo={Offset():F0} views={DocumentHost.Children.OfType<DocumentView>().Count()}");
                 }
                 if (args.Contains("--edit-pages")) { SetPageEditing(true); await Task.Delay(500); }
                 if (Arg("--pages-test") is { } insertFile)

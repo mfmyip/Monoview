@@ -36,7 +36,7 @@ public sealed partial class PdfViewer : UserControl
     private const int TileSize = 512;
     private static readonly double[] ZoomSteps = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8];
 
-    private readonly PdfDocument _doc;
+    private PdfDocument _doc;
     private readonly PreviewCache _previews;
     private readonly ScrollViewer _scroller;
     private readonly Canvas _surface;
@@ -492,7 +492,9 @@ public sealed partial class PdfViewer : UserControl
                 if (ComputeFitZoom() >= 1)
                     FitMode = FitMode.Custom;
             }
-            ApplyZoom(FitMode == FitMode.Custom ? zoom : ComputeFitZoom(), null, requestTiles: true);
+            // With a position to restore, render nothing sharp at the top first: that would draw page 1, report
+            // it as the first page, and only then jump. Tiles come once the scroll below lands.
+            ApplyZoom(FitMode == FitMode.Custom ? zoom : ComputeFitZoom(), null, requestTiles: InitialState is null);
             if (InitialState is { } restored)
             {
                 // The ScrollViewer ignores ChangeView during its first layout pass; scroll on the next tick.
@@ -506,6 +508,8 @@ public sealed partial class PdfViewer : UserControl
                     }
                     else
                         GoToPage(page);
+                    RestartSettleTimer(); // draws wherever the scroll landed, even if it didn't move
+
                 });
             }
             InitialState = null;
@@ -750,14 +754,16 @@ public sealed partial class PdfViewer : UserControl
         int fullW, int fullH, double scale, WorkPriority priority, CancellationToken ct)
     {
         RenderedBitmap rendered;
+        var doc = _doc;
         try
         {
-            rendered = await _doc.RenderAsync(key.Page, fullW, fullH, rect, key.Rotation, priority, ct);
+            rendered = await doc.RenderAsync(key.Page, fullW, fullH, rect, key.Rotation, priority, ct);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or PdfException)
         {
             return;
         }
+        if (doc != _doc) return; // the document was replaced while this rendered
 
         var bmp = Bitmaps.ToBitmap(rendered);
         if (!_firstPageReported) StartupTrace.Mark($"tile_p{key.Page}_{key.X}_{key.Y}");
@@ -789,7 +795,9 @@ public sealed partial class PdfViewer : UserControl
     {
         try
         {
-            var text = await _doc.GetTextAsync(index, WorkPriority.Low);
+            var doc = _doc;
+            var text = await doc.GetTextAsync(index, WorkPriority.Low);
+            if (doc != _doc) return;
             _texts.Add(index, text);
             if (_views.TryGetValue(index, out var view))
                 RefreshOverlay(view);

@@ -27,12 +27,23 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Shows <paramref name="doc"/> in the tab in place of <paramref name="old"/>, keeping zoom, rotation and
-    /// sidebar. Page operations change the page count, so the view is rebuilt rather than updated.
+    /// Shows <paramref name="doc"/> in the tab in place of <paramref name="old"/>'s document, keeping zoom, rotation,
+    /// scroll and sidebar. With the same pages (undo, redo, save, reload) the view stays and redraws in place;
+    /// page operations change the pages, so the view is rebuilt.
     /// </summary>
     private void ReplaceView(TabViewItem tab, DocumentView old, PdfDocument doc, bool closeOldDocument,
         int? page = null, IReadOnlyList<int>? select = null)
     {
+        var previous = old.Document;
+        if (!ReferenceEquals(previous, doc) && page is null && select is null && previous.PageSizes.SequenceEqual(doc.PageSizes))
+        {
+            old.ReplaceDocument(doc);
+            if (closeOldDocument) previous.Dispose();
+            UpdateTabHeader(tab);
+            OnCurrentDocumentChanged();
+            return;
+        }
+
         var view = CreateDocumentView(doc);
         var state = old.Viewer.CaptureState();
         // Same pages: keep the exact scroll position. A page operation lands on the page it names instead.

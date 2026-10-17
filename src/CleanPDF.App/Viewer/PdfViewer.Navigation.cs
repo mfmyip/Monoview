@@ -82,7 +82,9 @@ public sealed partial class PdfViewer
     {
         try
         {
-            _links.Add(index, await _doc.GetLinksAsync(index));
+            var doc = _doc;
+            var links = await doc.GetLinksAsync(index);
+            if (doc == _doc) _links.Add(index, links);
         }
         catch (Exception ex) when (ex is ObjectDisposedException or PdfException)
         {

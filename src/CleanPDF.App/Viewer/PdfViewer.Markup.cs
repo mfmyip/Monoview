@@ -166,6 +166,27 @@ public sealed partial class PdfViewer
         UpdateViewport(requestTiles: true);
     }
 
+    /// <summary>
+    /// Shows <paramref name="doc"/> in place of the current document, which must have the same pages at the same
+    /// sizes (undo, redo, save). Every page redraws, and its old drawing stays up until the new one is ready.
+    /// </summary>
+    public void ReplaceDocument(PdfDocument doc)
+    {
+        _doc = doc;
+        _previews.Document = doc;
+        _tiles.Clear();
+        _texts.Clear();
+        _links.Clear();
+        _markups.Clear();
+        _pressedMarkup = null;
+        foreach (var view in _views.Values)
+        {
+            view.MarkTilesStale(_w[view.Index]);
+            view.PreviewRequested = false;
+        }
+        UpdateViewport(requestTiles: true);
+    }
+
     private void EnsureMarkups(int index)
     {
         if (_markups.TryGet(index, out _) || !_markupsLoading.Add(index)) return;
@@ -176,7 +197,9 @@ public sealed partial class PdfViewer
     {
         try
         {
-            _markups.Add(index, await _doc.GetMarkupsAsync(index));
+            var doc = _doc;
+            var markups = await doc.GetMarkupsAsync(index);
+            if (doc == _doc) _markups.Add(index, markups);
         }
         catch (Exception ex) when (ex is ObjectDisposedException or PdfException)
         {
