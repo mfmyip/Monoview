@@ -30,6 +30,12 @@ internal static class RecentFiles
             Save(items);
     }
 
+    public static void Clear()
+    {
+        _items = [];
+        Save(_items);
+    }
+
     private static List<string> Load()
     {
         try

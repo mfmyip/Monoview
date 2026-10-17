@@ -9,7 +9,39 @@ public partial class App : Application
 {
     private readonly string[] _args;
     private readonly bool _benchmark;
-    private MainWindow? _window;
+    private readonly List<MainWindow> _windows = new();
+    private MainWindow? _lastActive;
+
+    public static new App Current => (App)Application.Current;
+
+    /// <summary>Open windows, oldest first. The app exits when the last one closes.</summary>
+    public IReadOnlyList<MainWindow> Windows => _windows;
+
+    /// <summary>A new, empty window; the caller fills and activates it.</summary>
+    public MainWindow NewWindow()
+    {
+        var window = new MainWindow(_benchmark);
+        _windows.Add(window);
+        _lastActive ??= window;
+        window.Activated += (_, e) =>
+        {
+            if (e.WindowActivationState != WindowActivationState.Deactivated) _lastActive = window;
+        };
+        window.Closed += (_, _) =>
+        {
+            _windows.Remove(window);
+            if (_lastActive == window) _lastActive = _windows.LastOrDefault();
+        };
+        return window;
+    }
+
+    /// <summary>Closes every window, asking about unsaved changes in each; stops at the first Cancel (Exit, Ctrl+Q).</summary>
+    public async Task QuitAsync()
+    {
+        foreach (var window in _windows.ToList())
+            if (!await window.CloseWindowAsync())
+                return;
+    }
 
     public App(string[] args, bool benchmark)
     {
@@ -54,15 +86,15 @@ public partial class App : Application
         var opening = files.Select(f => (Path: f, Task: OpenAndPrefetchAsync(f))).ToList();
 
         StartupTrace.Mark("launched");
-        _window = new MainWindow(_benchmark);
+        var window = NewWindow();
         StartupTrace.Mark("window_created");
-        _window.Activate();
+        window.Activate();
         foreach (var (path, task) in opening)
-            _ = _window.OpenFileAsync(path, task);
+            _ = window.OpenFileAsync(path, task);
         if (opening.Count == 0)
         {
-            _window.ShowStartPage(true);
-            if (_benchmark) _window.ReportBenchmarkAndExit(); // lets --screenshot capture the start page
+            window.ShowStartPage(true);
+            if (_benchmark) window.ReportBenchmarkAndExit(); // lets --screenshot capture the start page
         }
 
         if (!_benchmark)
@@ -71,10 +103,12 @@ public partial class App : Application
             AppInstance.GetCurrent().Activated += (_, e) =>
             {
                 string commandLine = e.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch ? launch.Arguments : "";
+                // Files from Explorer go to the window used last, like a browser.
                 dispatcher.TryEnqueue(() =>
                 {
-                    _window.BringToFront();
-                    _window.OpenFiles(Program.FilesFromCommandLine(commandLine));
+                    var target = _lastActive ?? NewWindow();
+                    target.BringToFront();
+                    target.OpenFiles(Program.FilesFromCommandLine(commandLine));
                 });
             };
         }

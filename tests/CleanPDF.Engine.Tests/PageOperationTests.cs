@@ -106,6 +106,16 @@ public class PageOperationTests
     }
 
     [Fact]
+    public async Task Copies_chosen_pages_from_another_document_in_the_order_given()
+    {
+        using var doc = await OpenSample();
+        using var other = await OpenSample();
+        Assert.Equal(2, await doc.InsertPagesFromAsync(other, 3, [2, 0]));
+        Assert.Equal(["Hello", "Rotated", "hello", "hello", "Hello"], await FirstWords(doc));
+        Assert.Equal(3, other.PageCount);
+    }
+
+    [Fact]
     public async Task Inserts_a_picture_as_a_page()
     {
         using var doc = await OpenSample();

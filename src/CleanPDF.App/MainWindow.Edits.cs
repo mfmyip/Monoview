@@ -129,6 +129,13 @@ public sealed partial class MainWindow
                     var moved = Enumerable.Range(request.Destination, pages.Count).ToList();
                     ReplaceView(tab, view, doc, closeOldDocument: false, page: moved[0], select: moved);
                     break;
+                case PageAction.CopyFrom:
+                    int to = Math.Clamp(request.Destination, 0, doc.PageCount);
+                    int copied = await doc.InsertPagesFromAsync(request.Source!, to, pages);
+                    var pasted = Enumerable.Range(to, copied).ToList();
+                    ReplaceView(tab, view, doc, closeOldDocument: false, page: to, select: pasted);
+                    ShowInfo($"Copied {copied} page{(copied == 1 ? "" : "s")} from {Path.GetFileName(request.Source!.Path)}");
+                    break;
                 case PageAction.InsertFromFile:
                     int at = Math.Clamp(request.Destination, 0, doc.PageCount);
                     int added = await doc.InsertPagesFromAsync(source!, at);

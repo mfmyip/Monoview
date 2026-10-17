@@ -19,7 +19,11 @@ internal static class HelpDialogs
             ("Ctrl+D", "Document properties"),
             ("Ctrl+W", "Close tab"),
             ("Ctrl+Shift+W", "Close all tabs"),
-            ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"),
+            ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab; Ctrl+PgDn / Ctrl+PgUp too"),
+            ("Ctrl+Shift+T", "Reopen the last closed tab"),
+            ("Ctrl+N", "New window"),
+            ("Drag a tab", "Reorder; drop on another window to move it there, or outside to give it its own window"),
+            ("Middle-click a tab", "Close it"),
             ("Ctrl+,", "Settings"),
         ]),
         ("View", [
@@ -37,7 +41,8 @@ internal static class HelpDialogs
         ]),
         ("Pages, in the sidebar", [
             ("Ctrl+click / Shift+click", "Select several pages"),
-            ("Drag", "Reorder pages; drop a PDF from Explorer to insert it"),
+            ("Drag", "Reorder pages; drop a PDF or picture from Explorer to insert it"),
+            ("Drag to another document", "Copy the pages into it; hold over a tab to switch to it first"),
             ("Delete", "Delete the selected pages"),
             ("Right-click", "Rotate, insert from a file, extract to a new PDF"),
         ]),

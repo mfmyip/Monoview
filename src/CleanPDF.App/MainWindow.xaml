@@ -87,6 +87,9 @@
                             <MenuFlyoutItem Text="Open…" Click="Open_Click" KeyboardAcceleratorTextOverride="Ctrl+O">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE838;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="New window" Click="NewWindow_Click" KeyboardAcceleratorTextOverride="Ctrl+N">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A7;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                             <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="Open recent files">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutSubItem.Icon>
                             </MenuFlyoutSubItem>
@@ -302,7 +305,9 @@
         </Grid>
 
         <TabView x:Name="Tabs" Grid.Row="1" VerticalAlignment="Top" Visibility="Collapsed"
-                 TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="False"
+                 TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="True" AllowDropTabs="True"
+                 TabDragStarting="Tabs_TabDragStarting" TabDragCompleted="Tabs_TabDragCompleted"
+                 TabDroppedOutside="Tabs_TabDroppedOutside" TabStripDragOver="Tabs_TabStripDragOver" TabStripDrop="Tabs_TabStripDrop"
                  AddTabButtonClick="Tabs_AddTabButtonClick"
                  TabCloseRequested="Tabs_TabCloseRequested"
                  SelectionChanged="Tabs_SelectionChanged">
@@ -332,7 +337,11 @@
                             <TextBlock Text="Open PDF…" />
                         </StackPanel>
                     </Button>
-                    <TextBlock x:Name="RecentHeader" Text="Recent" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,24,0,0" />
+                    <Grid Margin="0,24,0,0">
+                        <TextBlock x:Name="RecentHeader" Text="Recent" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <HyperlinkButton x:Name="ClearRecentButton" Content="Clear" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                         Click="ClearRecent_Click" ToolTipService.ToolTip="Clear the recent files list" />
+                    </Grid>
                     <ListView x:Name="RecentList" IsItemClickEnabled="True" SelectionMode="None" ItemClick="RecentList_ItemClick">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:RecentEntry">

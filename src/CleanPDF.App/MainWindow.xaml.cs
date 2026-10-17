@@ -36,7 +36,8 @@ public sealed partial class MainWindow : Window
         // Windows draws a light title bar for desktop apps unless asked; match the app's theme.
         Root.ActualThemeChanged += (_, _) => UseDarkTitleBar(Root.ActualTheme == ElementTheme.Dark);
         ApplyTheme();
-        AppSettings.Changed += (_, _) => ApplyTheme();
+        EventHandler themeChanged = (_, _) => ApplyTheme();
+        AppSettings.Changed += themeChanged;
         // The tab strip draws its own line under the tabs, open under the active one; the document's top line would close it.
         Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
         {
@@ -57,7 +58,12 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.D, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; ShowProperties(); });
         AddAccelerator(VirtualKey.R, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(+1); });
         AddAccelerator(VirtualKey.L, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CurrentView?.Viewer.Rotate(-1); });
-        AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = ExitAsync(); });
+        AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = App.Current.QuitAsync(); });
+        // Browser-style tab and window keys.
+        AddAccelerator(VirtualKey.N, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; OpenNewWindow(); });
+        AddAccelerator(VirtualKey.T, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; ReopenClosedTab(); });
+        AddAccelerator(VirtualKey.PageDown, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CycleTab(+1); });
+        AddAccelerator(VirtualKey.PageUp, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CycleTab(-1); });
         AddAccelerator(VirtualKey.F11, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; ToggleFullScreen(); });
         AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; _ = CloseAllTabsAsync(); });
         // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
@@ -65,13 +71,20 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
 
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
+        _hoverSwitch = new DispatcherTimerLike(TimeSpan.FromMilliseconds(500), () =>
+        {
+            if (_hoverTab is { } tab && Tabs.TabItems.Contains(tab)) Tabs.SelectedItem = tab;
+        });
         Closed += (_, _) =>
         {
+            AppSettings.Changed -= themeChanged;
             _infoTimer?.Stop();
             _searchDebounce.Stop();
+            _hoverSwitch.Stop();
             foreach (var view in DocumentViews().ToList())
             {
                 SaveReadingPosition(view);
+                RememberClosed(view);
                 view.Dispose();
             }
         };
@@ -80,7 +93,7 @@ public sealed partial class MainWindow : Window
         {
             if (_exitConfirmed || !DocumentViews().Any(v => v.Document.IsModified)) return;
             e.Cancel = true;
-            await ExitAsync();
+            await CloseWindowAsync();
         };
         AddAccelerator(VirtualKey.H, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; HighlightCommand(); });
         // Undo/redo; in a text box they stay the text box's own.
@@ -118,11 +131,14 @@ public sealed partial class MainWindow : Window
     public async Task OpenFileAsync(string path, Task<PdfDocument>? opening = null)
     {
         path = Path.GetFullPath(path);
-        var existing = Tabs.TabItems.OfType<TabViewItem>()
-            .FirstOrDefault(t => t.Tag is DocumentView v && string.Equals(v.Document.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
+        // Already open in any window: bring that tab forward instead of opening it twice.
+        foreach (var window in App.Current.Windows)
         {
-            Tabs.SelectedItem = existing;
+            var existing = window.Tabs.TabItems.OfType<TabViewItem>()
+                .FirstOrDefault(t => t.Tag is DocumentView v && string.Equals(v.Document.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (existing is null) continue;
+            window.Tabs.SelectedItem = existing;
+            if (window != this) window.BringToFront();
             return;
         }
 
@@ -154,27 +170,185 @@ public sealed partial class MainWindow : Window
         else if (AppSettings.Current.RememberLastPage && ReadingPositions.Get(path) is int lastPage and > 0 && lastPage < doc.PageCount)
             view.Viewer.InitialState = new ViewState(lastPage, 1, view.Viewer.FitMode, 0, false);
 
-        var tab = new TabViewItem
-        {
-            Header = Path.GetFileName(path),
-            Tag = view,
-            IconSource = new SymbolIconSource { Symbol = Symbol.Document },
-        };
-        ToolTipService.SetToolTip(tab, path);
-        tab.ContextFlyout = BuildTabMenu(tab);
-        view.Visibility = Visibility.Collapsed;
-        DocumentHost.Children.Add(view);
-        // A collapsed TabView doesn't apply selection, so show it before adding the first tab.
-        Tabs.Visibility = Visibility.Visible;
-        Tabs.TabItems.Add(tab);
-        Tabs.SelectedItem = tab;
-        OnCurrentDocumentChanged();
+        AddTab(view);
         StartupTrace.Mark("tab_added");
 
         if (!_benchmark)
             RecentFiles.Add(path);
         ErrorBar.IsOpen = false;
     }
+
+    /// <summary>Adds a tab for <paramref name="view"/> at <paramref name="index"/> (-1: the end) and selects it.</summary>
+    private TabViewItem AddTab(DocumentView view, int index = -1)
+    {
+        var tab = new TabViewItem { Tag = view, IconSource = new SymbolIconSource { Symbol = Symbol.Document } };
+        UpdateTabHeader(tab);
+        tab.ContextFlyout = BuildTabMenu(tab);
+        // Middle-click closes, like a browser.
+        tab.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(tab).Properties.IsMiddleButtonPressed) return;
+            e.Handled = true;
+            _ = CloseTabAsync(tab);
+        };
+        // Holding a dragged page or file over a tab brings that tab forward, so it can be dropped there.
+        tab.AllowDrop = true;
+        tab.DragEnter += (_, _) =>
+        {
+            if (s_tabDrag is not null || Tabs.SelectedItem == tab) return;
+            _hoverTab = tab;
+            _hoverSwitch.Restart();
+        };
+        tab.DragLeave += (_, _) =>
+        {
+            if (_hoverTab == tab) _hoverSwitch.Stop();
+        };
+        view.Visibility = Visibility.Collapsed;
+        DocumentHost.Children.Add(view);
+        // A collapsed TabView doesn't apply selection, so show it before adding the first tab.
+        Tabs.Visibility = Visibility.Visible;
+        if (index < 0 || index > Tabs.TabItems.Count) Tabs.TabItems.Add(tab);
+        else Tabs.TabItems.Insert(index, tab);
+        Tabs.SelectedItem = tab;
+        OnCurrentDocumentChanged();
+        return tab;
+    }
+
+    private readonly DispatcherTimerLike _hoverSwitch;
+    private TabViewItem? _hoverTab;
+
+    // ---------------- Windows and moving tabs ----------------
+
+    /// <summary>A new empty window a little below and right of this one (Ctrl+N).</summary>
+    private void OpenNewWindow()
+    {
+        var window = App.Current.NewWindow();
+        window.AppWindow.Resize(AppWindow.Size);
+        window.AppWindow.Move(new Windows.Graphics.PointInt32(AppWindow.Position.X + 32, AppWindow.Position.Y + 32));
+        window.ShowStartPage(true);
+        window.Activate();
+    }
+
+    /// <summary>
+    /// Moves a tab, with its open document, view and undo history, into <paramref name="target"/> at
+    /// <paramref name="index"/> (-1: the end). A window left without tabs closes, like a browser.
+    /// </summary>
+    private void MoveTab(TabViewItem tab, MainWindow target, int index = -1)
+    {
+        if (tab.Tag is not DocumentView view || target == this) return;
+        var state = view.Viewer.CaptureState();
+        bool sidebar = view.IsSidebarVisible;
+        var history = HistoryFor(tab);
+        _histories.Remove(tab);
+        DocumentHost.Children.Remove(view);
+        view.Close(closeDocument: false);
+        Tabs.TabItems.Remove(tab);
+        OnCurrentDocumentChanged();
+
+        var moved = target.CreateDocumentView(view.Document);
+        moved.Viewer.InitialState = state;
+        moved.SetSidebarVisible(sidebar);
+        target._histories[target.AddTab(moved, index)] = history;
+        target.BringToFront();
+        if (Tabs.TabItems.Count == 0)
+        {
+            _exitConfirmed = true;
+            Close();
+        }
+    }
+
+    /// <summary>Puts a tab in a window of its own at <paramref name="at"/>, or a little below and right of this one.</summary>
+    private void MoveToNewWindow(TabViewItem tab, Windows.Graphics.PointInt32? at = null)
+    {
+        var window = App.Current.NewWindow();
+        window.AppWindow.Resize(AppWindow.Size);
+        window.AppWindow.Move(at ?? new Windows.Graphics.PointInt32(AppWindow.Position.X + 32, AppWindow.Position.Y + 32));
+        window.Activate();
+        MoveTab(tab, window);
+    }
+
+    /// <summary>The tab being dragged, and its window, so another window can take it.</summary>
+    private static (MainWindow Window, TabViewItem Tab)? s_tabDrag;
+    private const string TabDragFormat = "CleanPDF.Tab";
+
+    private bool IsTabFromOtherWindow(DragEventArgs e) =>
+        s_tabDrag is { } drag && drag.Window != this && e.DataView.Contains(TabDragFormat);
+
+    private void Tabs_TabDragStarting(TabView sender, TabViewTabDragStartingEventArgs args)
+    {
+        s_tabDrag = (this, args.Tab);
+        args.Data.SetData(TabDragFormat, "tab");
+        args.Data.RequestedOperation = DataPackageOperation.Move;
+    }
+
+    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args) => s_tabDrag = null;
+
+    private void Tabs_TabStripDragOver(object sender, DragEventArgs e)
+    {
+        if (!IsTabFromOtherWindow(e)) return;
+        e.AcceptedOperation = DataPackageOperation.Move;
+        e.DragUIOverride.Caption = "Move tab here";
+    }
+
+    private void Tabs_TabStripDrop(object sender, DragEventArgs e)
+    {
+        if (!IsTabFromOtherWindow(e) || s_tabDrag is not { } drag) return;
+        drag.Window.MoveTab(drag.Tab, this, TabIndexAt(e.GetPosition(Tabs).X));
+    }
+
+    /// <summary>Dropped away from every window: the tab gets a window of its own where it was let go.</summary>
+    private void Tabs_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
+    {
+        GetCursorPos(out var cursor);
+        var at = new Windows.Graphics.PointInt32(cursor.X - 160, cursor.Y - 20);
+        if (Tabs.TabItems.Count == 1) AppWindow.Move(at); // the only tab: just move its window
+        else MoveToNewWindow(args.Tab, at);
+    }
+
+    /// <summary>Insert before the first tab whose middle is right of <paramref name="x"/>; at the end otherwise.</summary>
+    private int TabIndexAt(double x)
+    {
+        for (int i = 0; i < Tabs.TabItems.Count; i++)
+        {
+            if (Tabs.ContainerFromIndex(i) is not FrameworkElement container) continue;
+            if (x < container.TransformToVisual(Tabs).TransformPoint(default).X + container.ActualWidth / 2) return i;
+        }
+        return Tabs.TabItems.Count;
+    }
+
+    /// <summary>Closed files, newest last, for Ctrl+Shift+T.</summary>
+    private static readonly List<string> s_closedPaths = new();
+
+    private void RememberClosed(DocumentView view)
+    {
+        string path = view.Document.Path;
+        if (!File.Exists(path)) return;
+        s_closedPaths.Remove(path);
+        s_closedPaths.Add(path);
+        if (s_closedPaths.Count > 20) s_closedPaths.RemoveAt(0);
+    }
+
+    private void ReopenClosedTab()
+    {
+        while (s_closedPaths.Count > 0)
+        {
+            string path = s_closedPaths[^1];
+            s_closedPaths.RemoveAt(s_closedPaths.Count - 1);
+            if (!File.Exists(path)) continue;
+            _ = OpenFileAsync(path);
+            return;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorPoint
+    {
+        public int X, Y;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetCursorPos(out CursorPoint point);
 
     /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
     private async Task<PdfDocument?> AskPasswordAndOpenAsync(string path)
@@ -549,12 +723,13 @@ public sealed partial class MainWindow : Window
 
     private Task<bool> CloseAllTabsAsync() => CloseTabsAsync(Tabs.TabItems.OfType<TabViewItem>());
 
-    /// <summary>Closes the window after asking about unsaved changes (Exit, Ctrl+Q, the window's X).</summary>
-    private async Task ExitAsync()
+    /// <summary>Closes this window after asking about unsaved changes (the window's X). False when cancelled.</summary>
+    public async Task<bool> CloseWindowAsync()
     {
-        if (!await CloseAllTabsAsync()) return;
+        if (!await CloseAllTabsAsync()) return false;
         _exitConfirmed = true;
         Close();
+        return true;
     }
 
     private bool _exitConfirmed;
@@ -659,6 +834,7 @@ public sealed partial class MainWindow : Window
         if (tab.Tag is DocumentView view)
         {
             SaveReadingPosition(view);
+            RememberClosed(view);
             DocumentHost.Children.Remove(view);
             view.Dispose();
         }
@@ -687,17 +863,39 @@ public sealed partial class MainWindow : Window
 
     private void RecentMenu_Opening(object? sender, object e)
     {
-        RecentMenu.Items.Clear();
+        FillRecentItems(RecentMenu.Items);
+    }
+
+    /// <summary>The recent files as menu items, then "Clear recent files" (the toolbar's list and the ☰ submenu).</summary>
+    private void FillRecentItems(IList<MenuFlyoutItemBase> items)
+    {
+        items.Clear();
         foreach (var path in RecentFiles.Items)
         {
-            var item = new MenuFlyoutItem { Text = Path.GetFileName(path), Tag = path };
+            var item = new MenuFlyoutItem { Text = Path.GetFileName(path) };
             ToolTipService.SetToolTip(item, path);
-            item.Click += (s, args) => _ = OpenFileAsync((string)((MenuFlyoutItem)s).Tag);
-            RecentMenu.Items.Add(item);
+            item.Click += (s, args) => _ = OpenFileAsync(path);
+            items.Add(item);
         }
-        if (RecentMenu.Items.Count == 0)
-            RecentMenu.Items.Add(new MenuFlyoutItem { Text = "No recent files", IsEnabled = false });
+        if (items.Count == 0)
+        {
+            items.Add(new MenuFlyoutItem { Text = "No recent files", IsEnabled = false });
+            return;
+        }
+        items.Add(new MenuFlyoutSeparator());
+        var clear = new MenuFlyoutItem { Text = "Clear recent files", Icon = new FontIcon { Glyph = "\uE74D" } };
+        clear.Click += (s, args) => ClearRecentFiles();
+        items.Add(clear);
     }
+
+    private static void ClearRecentFiles()
+    {
+        RecentFiles.Clear();
+        foreach (var window in App.Current.Windows)
+            window.RefreshStartPage();
+    }
+
+    private void ClearRecent_Click(object sender, RoutedEventArgs e) => ClearRecentFiles();
 
     private void RecentList_ItemClick(object sender, ItemClickEventArgs e)
     {
@@ -711,11 +909,17 @@ public sealed partial class MainWindow : Window
             .Select(p => new RecentEntry(p, Path.GetFileName(p), Path.GetDirectoryName(p) ?? ""))
             .ToList();
         RecentList.ItemsSource = entries;
-        RecentHeader.Visibility = entries.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RecentHeader.Visibility = ClearRecentButton.Visibility = entries.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Root_DragOver(object sender, DragEventArgs e)
     {
+        if (IsTabFromOtherWindow(e))
+        {
+            e.AcceptedOperation = DataPackageOperation.Move;
+            e.DragUIOverride.Caption = "Move tab here";
+            return;
+        }
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
@@ -725,6 +929,11 @@ public sealed partial class MainWindow : Window
 
     private async void Root_Drop(object sender, DragEventArgs e)
     {
+        if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
+        {
+            drag.Window.MoveTab(drag.Tab, this);
+            return;
+        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await e.DataView.GetStorageItemsAsync();
         foreach (var file in items.OfType<StorageFile>())
@@ -1000,16 +1209,7 @@ public sealed partial class MainWindow : Window
         CopyItem.IsEnabled = view?.Viewer.HasSelection ?? false;
         SidebarItem.Text = view?.IsSidebarVisible == false ? "Show sidebar" : "Hide sidebar";
 
-        RecentSubMenu.Items.Clear();
-        foreach (var path in RecentFiles.Items)
-        {
-            var item = new MenuFlyoutItem { Text = Path.GetFileName(path), Tag = path };
-            ToolTipService.SetToolTip(item, path);
-            item.Click += (s, args) => _ = OpenFileAsync((string)((MenuFlyoutItem)s).Tag);
-            RecentSubMenu.Items.Add(item);
-        }
-        if (RecentSubMenu.Items.Count == 0)
-            RecentSubMenu.Items.Add(new MenuFlyoutItem { Text = "No recent files", IsEnabled = false });
+        FillRecentItems(RecentSubMenu.Items);
     }
 
     private void Reload_Click(object sender, RoutedEventArgs e) => _ = ReloadAsync();
@@ -1122,6 +1322,8 @@ public sealed partial class MainWindow : Window
             _ = CloseTabsAsync(Tabs.TabItems.OfType<TabViewItem>().Skip(index + 1));
         });
         Add("Close all tabs", () => _ = CloseAllTabsAsync(), "Ctrl+Shift+W");
+        Add("Reopen closed tab", ReopenClosedTab, "Ctrl+Shift+T");
+        var moveOut = Add("Move to new window", () => MoveToNewWindow(tab), glyph: "\uE8A7");
         menu.Items.Add(new MenuFlyoutSeparator());
         Add("Copy file name", () => CopyText(Path.GetFileName(Path_())), glyph: "");
         Add("Copy file path", () => CopyText(Path_()));
@@ -1134,13 +1336,14 @@ public sealed partial class MainWindow : Window
 
         menu.Opening += (s, args) =>
         {
-            closeOthers.IsEnabled = Tabs.TabItems.Count > 1;
+            closeOthers.IsEnabled = moveOut.IsEnabled = Tabs.TabItems.Count > 1;
             closeRight.IsEnabled = Tabs.TabItems.IndexOf(tab) < Tabs.TabItems.Count - 1;
         };
         return menu;
     }
 
-    private void Exit_Click(object sender, RoutedEventArgs e) => _ = ExitAsync();
+    private void Exit_Click(object sender, RoutedEventArgs e) => _ = App.Current.QuitAsync();
+    private void NewWindow_Click(object sender, RoutedEventArgs e) => OpenNewWindow();
 
     private void GoToPage_Click(object sender, RoutedEventArgs e) => FocusPageBox();
 
@@ -1205,8 +1408,13 @@ public sealed partial class MainWindow : Window
         SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
 
+    private static bool s_benchmarkStarted;
+
     internal void ReportBenchmarkAndExit()
     {
+        // Once: files the dev checks open fire this again.
+        if (s_benchmarkStarted) return;
+        s_benchmarkStarted = true;
         // Wait one frame so the page has actually been composed on screen.
         Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnRendered;
 
@@ -1265,6 +1473,71 @@ public sealed partial class MainWindow : Window
                     Console.Out.WriteLine($"UNDO_SCROLL before={before:F0} after_undo={undone:F0} after_redo={Offset():F0} views={DocumentHost.Children.OfType<DocumentView>().Count()}");
                 }
                 if (args.Contains("--edit-pages")) { SetPageEditing(true); await Task.Delay(500); }
+                if (Arg("--demo") is { } demoFolder)
+                {
+                    // A paced walk through recent features, for a screen recording: <folder> holds out.pdf and test-image.png.
+                    var size = new Windows.Graphics.SizeInt32(1400, 1300);
+                    AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(100, 100, size.Width, size.Height));
+                    async Task Pause(int ms = 1600) => await Task.Delay(ms);
+                    var manual = CurrentView!;
+                    await Pause(2000);
+                    HighlightMenu.ShowAt(HighlightButton);
+                    await Pause(2000);
+                    HighlightMenu.Hide();
+                    await manual.Viewer.SelectAllAsync();
+                    await manual.Viewer.MarkSelectionAsync(MarkupKind.Highlight, new MarkupColor(110, 220, 90));
+                    await Pause(2000);
+                    await StepHistoryAsync(redo: false);
+                    await Pause();
+                    await StepHistoryAsync(redo: true);
+                    await Pause();
+                    await OpenFileAsync(Path.Combine(demoFolder, "test-image.png"));
+                    await Pause(2200);
+                    await OpenFileAsync(Path.Combine(demoFolder, "out.pdf"));
+                    SetPageEditing(true);
+                    await Pause();
+                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.CopyFrom, [0, 1], 0, Source: manual.Document));
+                    await Pause(2200);
+                    MoveToNewWindow((TabViewItem)Tabs.SelectedItem, new Windows.Graphics.PointInt32(100 + size.Width + 20, 100));
+                    await Pause(2500);
+                    var other = App.Current.Windows.First(w => w != this);
+                    other.MoveTab((TabViewItem)other.Tabs.SelectedItem, this);
+                    await Pause(2000);
+                    var picture = Tabs.TabItems.OfType<TabViewItem>().First(t => t.Tag is DocumentView { Document.Path: var p } && p.EndsWith(".png"));
+                    await CloseTabAsync(picture);
+                    await Pause();
+                    ReopenClosedTab();
+                    await Pause(2200);
+                    SetPageEditing(false);
+                    foreach (var modified in Tabs.TabItems.OfType<TabViewItem>().Where(t => t.Tag is DocumentView { Document.IsModified: true }).ToList()) CloseTab(modified);
+                    await Pause(800);
+                }
+                if (Arg("--tabs-test") is { } secondFile)
+                {
+                    string Windows_() => string.Join(" | ", App.Current.Windows.Select(w => string.Join(",", w.Tabs.TabItems.OfType<TabViewItem>()
+                        .Select(t => $"{t.Header}:{(t.Tag as DocumentView)?.Document.PageCount}p"))));
+                    var first = CurrentView!;
+                    await OpenFileAsync(secondFile);
+                    await Task.Delay(800);
+                    Console.Out.WriteLine($"TABS opened second: {Windows_()}");
+                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.CopyFrom, [0, 1], 0, Source: first.Document));
+                    await Task.Delay(800);
+                    Console.Out.WriteLine($"TABS copied 2 pages in: {Windows_()} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
+                    MoveToNewWindow((TabViewItem)Tabs.SelectedItem);
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"TABS moved to new window: {Windows_()}");
+                    var other = App.Current.Windows.First(w => w != this);
+                    Console.Out.WriteLine($"TABS undo kept in new window: {other.HistoryFor((TabViewItem)other.Tabs.SelectedItem).CanUndo}");
+                    other.MoveTab((TabViewItem)other.Tabs.SelectedItem, this);
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"TABS moved back, empty window closed: {Windows_()} windows={App.Current.Windows.Count}");
+                    var firstTab = Tabs.TabItems.OfType<TabViewItem>().First(t => t.Tag == first);
+                    await CloseTabAsync(firstTab);
+                    ReopenClosedTab();
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"TABS closed and reopened first: {Windows_()}");
+                    foreach (var modified in Tabs.TabItems.OfType<TabViewItem>().Where(t => t.Tag is DocumentView { Document.IsModified: true }).ToList()) CloseTab(modified);
+                }
                 if (Arg("--insert-test") is { } insertPath)
                 {
                     await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.InsertFromFile, [], 0, insertPath));

@@ -7,7 +7,7 @@ using Windows.System;
 
 namespace CleanPDF.App;
 
-public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, Extract, ExportImages }
+public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, CopyFrom, Extract, ExportImages }
 
 public static class PageActions
 {
@@ -15,8 +15,12 @@ public static class PageActions
     public static bool NeedsEditing(string? tag) => tag is not (nameof(PageAction.Extract) or nameof(PageAction.ExportImages));
 }
 
-/// <summary>A page operation asked for in the sidebar; the window runs it, so it can be undone.</summary>
-public sealed record PageRequest(PageAction Action, IReadOnlyList<int> Pages, int Destination = 0, string? FilePath = null);
+/// <summary>
+/// A page operation asked for in the sidebar; the window runs it, so it can be undone. For CopyFrom,
+/// <see cref="Pages"/> are pages of <see cref="Source"/>, another open document.
+/// </summary>
+public sealed record PageRequest(PageAction Action, IReadOnlyList<int> Pages, int Destination = 0, string? FilePath = null,
+    CleanPDF.Engine.PdfDocument? Source = null);
 
 /// <summary>The page sidebar as an editor: drag to reorder, Delete, right-click actions, drop a PDF to insert.</summary>
 public sealed partial class DocumentView
@@ -100,9 +104,23 @@ public sealed partial class DocumentView
         RequestPages(action, destination: after);
     }
 
+    /// <summary>Pages being dragged out of a sidebar, so another document's sidebar can copy them.</summary>
+    private static (DocumentView From, IReadOnlyList<int> Pages)? s_pageDrag;
+
+    private void Thumbnails_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        s_pageDrag = (this, e.Items.OfType<ThumbnailItem>().Select(t => t.Index).Order().ToList());
+        // Move reorders within this list; Copy lets another document take the pages.
+        e.Data.RequestedOperation = DataPackageOperation.Move | DataPackageOperation.Copy;
+    }
+
+    private (DocumentView From, IReadOnlyList<int> Pages)? PagesFromAnotherDocument() =>
+        s_pageDrag is { } drag && drag.From != this ? drag : null;
+
     /// <summary>A drag inside the list reordered pages: tell the window which pages moved and where to.</summary>
     private void Thumbnails_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
+        s_pageDrag = null;
         if (args.DropResult != DataPackageOperation.Move) return;
         var moved = args.Items.OfType<ThumbnailItem>().OrderBy(_thumbs.IndexOf).ToList();
         if (moved.Count == 0) return;
@@ -116,6 +134,14 @@ public sealed partial class DocumentView
 
     private void Thumbnails_DragOver(object sender, DragEventArgs e)
     {
+        if (PagesFromAnotherDocument() is { } drag)
+        {
+            if (!_pageEditing) return;
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = drag.Pages.Count == 1 ? "Copy page here" : $"Copy {drag.Pages.Count} pages here";
+            e.Handled = true;
+            return;
+        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return; // a page reorder, handled by the list
         if (!_pageEditing) return; // not editing: the window opens the file in a new tab instead
         e.AcceptedOperation = DataPackageOperation.Copy;
@@ -125,6 +151,14 @@ public sealed partial class DocumentView
 
     private async void Thumbnails_Drop(object sender, DragEventArgs e)
     {
+        if (PagesFromAnotherDocument() is { } drag)
+        {
+            if (!_pageEditing) return;
+            e.Handled = true;
+            PageRequested?.Invoke(this, new PageRequest(PageAction.CopyFrom, drag.Pages, InsertionIndexAt(e.GetPosition(Thumbnails).Y),
+                Source: drag.From.Document));
+            return;
+        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems) || !_pageEditing) return;
         e.Handled = true; // don't also open the file in a new tab
         var deferral = e.GetDeferral();

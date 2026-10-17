@@ -56,7 +56,7 @@
                       CanDragItems="False" CanReorderItems="False" AllowDrop="True"
                       SelectionChanged="Thumbnails_SelectionChanged"
                       ContainerContentChanging="Thumbnails_ContainerContentChanging"
-                      DragItemsCompleted="Thumbnails_DragItemsCompleted"
+                      DragItemsStarting="Thumbnails_DragItemsStarting" DragItemsCompleted="Thumbnails_DragItemsCompleted"
                       DragOver="Thumbnails_DragOver" Drop="Thumbnails_Drop"
                       KeyDown="Thumbnails_KeyDown" ContextRequested="Thumbnails_ContextRequested">
                 <ListView.ContextFlyout>
