@@ -4,8 +4,10 @@ using CleanPDF.App.Viewer;
 using CleanPDF.Engine;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -126,7 +128,7 @@ public sealed partial class MainWindow : Window
         PdfDocument? doc;
         try
         {
-            doc = await (opening ?? PdfDocument.OpenAsync(path));
+            doc = await (opening ?? DocumentFiles.OpenAsync(path));
             StartupTrace.Mark("doc_opened");
         }
         catch (PdfPasswordException)
@@ -323,37 +325,57 @@ public sealed partial class MainWindow : Window
         _syncingHighlighter = false;
     }
 
+    /// <summary>Style and color picker: a row of three styles drawn in the current color, then a row of color dots.</summary>
     private void HighlightMenu_Opening(object? sender, object e)
     {
-        HighlightMenu.Items.Clear();
+        var c = MarkupPalette.Current;
+        var brush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+        var ring = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+
+        var styles = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         var kinds = new (string Text, MarkupKind Kind)[]
         {
             ("Highlight", MarkupKind.Highlight), ("Underline", MarkupKind.Underline), ("Strikethrough", MarkupKind.StrikeOut),
         };
         foreach (var (text, kind) in kinds)
         {
-            var item = new RadioMenuFlyoutItem { Text = text, GroupName = "kind", IsChecked = MarkupPalette.CurrentKind == kind };
-            item.Click += (s, args) => { AppSettings.Current.MarkupKind = kind.ToString(); AppSettings.Save(); };
-            HighlightMenu.Items.Add(item);
-        }
-        HighlightMenu.Items.Add(new MenuFlyoutSeparator());
-        foreach (var (name, color) in MarkupPalette.Colors)
-        {
-            var item = new RadioMenuFlyoutItem
+            var sample = new Grid { Width = 20, Height = 22 };
+            if (kind == MarkupKind.Highlight)
+                sample.Children.Add(new Border { Background = brush, Opacity = 0.55, CornerRadius = new CornerRadius(2) });
+            sample.Children.Add(new TextBlock { Text = "A", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            if (kind != MarkupKind.Highlight)
+                sample.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+                {
+                    Fill = brush, Height = 2,
+                    VerticalAlignment = kind == MarkupKind.Underline ? VerticalAlignment.Bottom : VerticalAlignment.Center,
+                    Margin = kind == MarkupKind.Underline ? new Thickness(1, 0, 1, 1) : new Thickness(1, 1, 1, 0),
+                });
+            bool selected = MarkupPalette.CurrentKind == kind;
+            var button = new Button
             {
-                Text = name,
-                GroupName = "color",
-                IsChecked = AppSettings.Current.MarkupColor == name,
-                Icon = new FontIcon { Glyph = "", Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, color.R, color.G, color.B)) },
+                Content = sample, Width = 40, Height = 36, Padding = new Thickness(0),
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderBrush = selected ? ring : null, BorderThickness = new Thickness(selected ? 2 : 0),
             };
-            item.Click += (s, args) =>
+            ToolTipService.SetToolTip(button, text);
+            AutomationProperties.SetName(button, text);
+            button.Click += (s, args) =>
             {
-                AppSettings.Current.MarkupColor = name;
+                AppSettings.Current.MarkupKind = kind.ToString();
                 AppSettings.Save();
-                UpdateHighlightSwatch();
+                HighlightMenu.Hide();
             };
-            HighlightMenu.Items.Add(item);
+            styles.Children.Add(button);
         }
+
+        var colors = MarkupPalette.ColorRow(HighlightMenu, c, color =>
+        {
+            AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color);
+            AppSettings.Save();
+            UpdateHighlightSwatch();
+        });
+
+        HighlightMenu.Content = new StackPanel { Spacing = 10, Children = { styles, colors } };
     }
 
     private void UpdateHighlightSwatch()
@@ -379,7 +401,7 @@ public sealed partial class MainWindow : Window
         PdfDocument doc;
         try
         {
-            doc = await PdfDocument.OpenAsync(path, old.Document.Password);
+            doc = await DocumentFiles.OpenAsync(path, old.Document.Password);
         }
         catch (PdfException ex)
         {
@@ -399,6 +421,11 @@ public sealed partial class MainWindow : Window
     {
         if (Tabs.SelectedItem is not TabViewItem tab || tab.Tag is not DocumentView view) return;
         if (target is null && !view.Document.IsModified) return; // nothing to save
+        if (target is null && DocumentFiles.IsImage(view.Document.Path))
+        {
+            await SaveAsAsync(); // never write PDF bytes into a picture file
+            return;
+        }
         string source = view.Document.Path;
         target = Path.GetFullPath(target ?? source);
         string temp = Path.Combine(Path.GetDirectoryName(target)!, $"~{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
@@ -447,13 +474,15 @@ public sealed partial class MainWindow : Window
         picker.FileTypeChoices.Add("PDF document", new List<string> { ".pdf" });
         try
         {
-            // Start in the file's own folder.
-            picker.SuggestedSaveFile = await StorageFile.GetFileFromPathAsync(view.Document.Path);
+            // Start in the file's own folder. A picture's own file would suggest its picture extension.
+            if (!DocumentFiles.IsImage(view.Document.Path))
+                picker.SuggestedSaveFile = await StorageFile.GetFileFromPathAsync(view.Document.Path);
         }
         catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException or ArgumentException)
         {
         }
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        await WaitForModifierKeysUpAsync();
         if (await picker.PickSaveFileAsync() is { } file)
             await SaveAsync(file.Path);
     }
@@ -615,8 +644,10 @@ public sealed partial class MainWindow : Window
     private async Task PickAndOpenAsync()
     {
         var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        picker.FileTypeFilter.Add(".pdf");
+        foreach (string extension in DocumentFiles.Extensions)
+            picker.FileTypeFilter.Add(extension);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        await WaitForModifierKeysUpAsync();
         var files = await picker.PickMultipleFilesAsync();
         foreach (var file in files)
             await OpenFileAsync(file.Path);
@@ -1275,6 +1306,7 @@ public sealed partial class MainWindow : Window
                     if (shown.IsFaulted) Console.Out.WriteLine($"DIALOG_ERROR {shown.Exception!.InnerException}");
                 }
                 if (args.Contains("--menu")) { MainMenu.ShowAt(MenuButton); await Task.Delay(500); }
+                if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(HighlightButton); await Task.Delay(1000); }
                 if (args.Contains("--tab-menu") && Tabs.SelectedItem is TabViewItem selectedTab)
                 {
                     selectedTab.ContextFlyout.ShowAt(selectedTab);
@@ -1322,13 +1354,19 @@ public sealed partial class MainWindow : Window
         int n = 0;
         foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot))
             if (popup.Child is { } child)
-                await SaveElementAsync(child, Path.ChangeExtension(path, $".popup{n++}.png"));
+            {
+                string file = Path.ChangeExtension(path, $".popup{n++}.png");
+                // A flyout in its own window renders empty as a whole; its content still renders.
+                if (!await SaveElementAsync(child, file) && child is ContentControl { Content: UIElement content })
+                    await SaveElementAsync(content, file);
+            }
     }
 
-    private static async Task SaveElementAsync(UIElement element, string path)
+    private static async Task<bool> SaveElementAsync(UIElement element, string path)
     {
         var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
         await rtb.RenderAsync(element);
+        if (rtb.PixelWidth == 0) return false;
         var pixels = await rtb.GetPixelsAsync();
         using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
         var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
@@ -1337,6 +1375,7 @@ public sealed partial class MainWindow : Window
         await encoder.FlushAsync();
         using var file = File.Create(path);
         await stream.AsStreamForRead().CopyToAsync(file);
+        return true;
     }
 
     /// <summary>Applies the Theme setting (or the --theme=light|dark dev flag) to the window and its title bar.</summary>
@@ -1369,6 +1408,20 @@ public sealed partial class MainWindow : Window
 
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /// <summary>
+    /// A file picker opened from a shortcut while Shift or Ctrl is still down never sees that key go up,
+    /// so it types as if the key were held. Wait, up to a second and a half, until the keys are released.
+    /// </summary>
+    private static async Task WaitForModifierKeysUpAsync()
+    {
+        const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
+        for (int i = 0; i < 100 && new[] { VK_SHIFT, VK_CONTROL, VK_MENU }.Any(k => GetAsyncKeyState(k) < 0); i++)
+            await Task.Delay(15);
+    }
+
+    [LibraryImport("user32.dll")]
+    private static partial short GetAsyncKeyState(int key);
 }
 
 /// <summary>A restartable one-shot timer on the UI thread.</summary>

@@ -357,7 +357,8 @@ public sealed partial class PdfViewer : UserControl
             if (!_singlePage || i == CurrentPage) maxW = Math.Max(maxW, _w[i]);
         }
 
-        double y = PageMargin;
+        // A lone page shorter than the window sits in the middle, like Preview.
+        double y = n == 1 ? Math.Max(PageMargin, (_scroller.ActualHeight - _h[0]) / 2) : PageMargin;
         double contentW;
         if (_twoPage)
         {
@@ -481,6 +482,13 @@ public sealed partial class PdfViewer : UserControl
                 FitMode = state.FitMode;
                 zoom = state.Zoom;
                 CurrentPage = Math.Clamp(state.Page, 0, PageCount - 1);
+            }
+            else if (PageCount == 1)
+            {
+                // Like Preview: a single page, such as a picture, shows at actual size, shrunk only to fit the window.
+                FitMode = FitMode.FitPage;
+                if (ComputeFitZoom() >= 1)
+                    FitMode = FitMode.Custom;
             }
             ApplyZoom(FitMode == FitMode.Custom ? zoom : ComputeFitZoom(), null, requestTiles: true);
             if (InitialState is { } restored)

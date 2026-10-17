@@ -87,8 +87,7 @@ public sealed partial class PdfDocument
                         float[] xs = [p.X1, p.X2, p.X3, p.X4], ys = [p.Y1, p.Y2, p.Y3, p.Y4];
                         rects.Add(transform.ApplyToBox(xs.Min(), ys.Min(), xs.Max(), ys.Max()));
                     }
-                    FPDFAnnot_GetColor(annot, ColorTypeColor, out uint r, out uint g, out uint bl, out _);
-                    markups.Add(new Markup(pageIndex, i, (MarkupKind)subtype, new MarkupColor((byte)r, (byte)g, (byte)bl), rects));
+                    markups.Add(new Markup(pageIndex, i, (MarkupKind)subtype, ReadColor(annot, (MarkupKind)subtype), rects));
                 }
                 finally
                 {
@@ -98,14 +97,38 @@ public sealed partial class PdfDocument
             return (IReadOnlyList<Markup>)markups;
         }, priority);
 
+    /// <summary>
+    /// The markup's color. PDFium won't read /C once the annotation has an appearance, which every markup
+    /// gets after a page reload, so read it from the drawn shapes: the fill of a highlight, the line of the others.
+    /// </summary>
+    private static MarkupColor ReadColor(IntPtr annot, MarkupKind kind)
+    {
+        uint r, g, b;
+        if (FPDFAnnot_GetColor(annot, ColorTypeColor, out r, out g, out b, out _) != 0)
+            return new MarkupColor((byte)r, (byte)g, (byte)b);
+        int count = FPDFAnnot_GetObjectCount(annot);
+        for (int i = 0; i < count; i++)
+        {
+            IntPtr obj = FPDFAnnot_GetObject(annot, i);
+            if (obj == IntPtr.Zero) continue;
+            bool found = kind == MarkupKind.Highlight
+                ? FPDFPageObj_GetFillColor(obj, out r, out g, out b, out _) != 0
+                : FPDFPageObj_GetStrokeColor(obj, out r, out g, out b, out _) != 0;
+            if (found) return new MarkupColor((byte)r, (byte)g, (byte)b);
+        }
+        return new MarkupColor(0, 0, 0);
+    }
+
     public Task SetMarkupColorAsync(Markup markup, MarkupColor color) => PdfiumThread.Run(() =>
     {
         IntPtr annot = FPDFPage_GetAnnot(GetPage(markup.PageIndex).__Instance, markup.AnnotIndex);
         if (annot == IntPtr.Zero) return;
         try
         {
-            FPDFAnnot_SetColor(annot, ColorTypeColor, color.R, color.G, color.B, 255);
-            FPDFAnnot_SetAP(annot, AppearanceNormal, IntPtr.Zero); // drop the old appearance so it's rebuilt in the new color
+            // PDFium won't set the color while an appearance exists; drop it first, and it's rebuilt in the new color.
+            FPDFAnnot_SetAP(annot, AppearanceNormal, IntPtr.Zero);
+            if (FPDFAnnot_SetColor(annot, ColorTypeColor, color.R, color.G, color.B, 255) == 0)
+                throw new PdfException("PDFium could not change the markup color.");
         }
         finally
         {
@@ -151,5 +174,9 @@ public sealed partial class PdfDocument
     [DllImport("pdfium")] private static extern nuint FPDFAnnot_CountAttachmentPoints(IntPtr annot);
     [DllImport("pdfium")] private static extern int FPDFAnnot_GetAttachmentPoints(IntPtr annot, nuint index, out QuadPoints quad);
     [DllImport("pdfium")] private static extern int FPDFAnnot_SetRect(IntPtr annot, ref RectF rect);
+    [DllImport("pdfium")] private static extern int FPDFAnnot_GetObjectCount(IntPtr annot);
+    [DllImport("pdfium")] private static extern IntPtr FPDFAnnot_GetObject(IntPtr annot, int index);
+    [DllImport("pdfium")] private static extern int FPDFPageObj_GetFillColor(IntPtr obj, out uint r, out uint g, out uint b, out uint a);
+    [DllImport("pdfium")] private static extern int FPDFPageObj_GetStrokeColor(IntPtr obj, out uint r, out uint g, out uint b, out uint a);
     [DllImport("pdfium")] private static extern int FPDFAnnot_SetAP(IntPtr annot, int mode, IntPtr value);
 }

@@ -65,7 +65,8 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
         Viewer.CurrentPageChanged += (_, _) => SyncThumbnailSelection();
         Loaded += (_, _) => SyncThumbnailSelection();
-        SidebarColumn.Width = new GridLength(AppSettings.Current.SidebarWidth);
+        // Like Preview: a single page, such as a picture, needs no page list.
+        SetSidebarVisible(document.PageCount > 1);
     }
 
     public void ToggleSidebar() => SetSidebarVisible(!IsSidebarVisible);

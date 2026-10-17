@@ -38,7 +38,7 @@ public partial class App : Application
 
     private static async Task<PdfDocument> OpenAndPrefetchAsync(string path)
     {
-        var doc = await PdfDocument.OpenAsync(path).ConfigureAwait(false);
+        var doc = await DocumentFiles.OpenAsync(path).ConfigureAwait(false);
         if (doc.PageCount > 0)
             _ = doc.PrefetchPageAsync(0);
         return doc;

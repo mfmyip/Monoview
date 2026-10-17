@@ -56,6 +56,44 @@ public class MarkupTests
         Assert.Empty(await doc.GetMarkupsAsync(0));
     }
 
+    [Fact]
+    public async Task Recolor_after_the_page_was_drawn()
+    {
+        using var doc = await PdfDocument.OpenAsync(SamplePdf.Path);
+        await doc.AddMarkupAsync(0, MarkupKind.Highlight, Yellow, await TitleRects(doc));
+        Assert.NotEqual(0, YellowPixels(await doc.RenderAsync(0, 612, 792)));
+        Assert.Equal(Yellow, Assert.Single(await doc.GetMarkupsAsync(0)).Color);
+
+        await doc.SetMarkupColorAsync(Assert.Single(await doc.GetMarkupsAsync(0)), Green);
+        Assert.Equal(0, YellowPixels(await doc.RenderAsync(0, 612, 792)));
+        Assert.Equal(Green, Assert.Single(await doc.GetMarkupsAsync(0)).Color);
+    }
+
+    [Theory]
+    [InlineData(MarkupKind.Underline)]
+    [InlineData(MarkupKind.StrikeOut)]
+    public async Task Color_reads_back_after_save(MarkupKind kind)
+    {
+        string path = TempPath();
+        try
+        {
+            using (var doc = await PdfDocument.OpenAsync(SamplePdf.Path))
+            {
+                await doc.AddMarkupAsync(0, kind, Green, await TitleRects(doc));
+                await doc.RenderAsync(0, 612, 792);
+                await doc.SaveCopyAsync(path);
+                await doc.CloseAsync();
+            }
+            using var saved = await PdfDocument.OpenAsync(path);
+            Assert.Equal(Green, Assert.Single(await saved.GetMarkupsAsync(0)).Color);
+            await saved.CloseAsync();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(MarkupKind.Underline)]
     [InlineData(MarkupKind.StrikeOut)]

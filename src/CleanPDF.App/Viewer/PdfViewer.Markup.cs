@@ -1,6 +1,9 @@
 using CleanPDF.Engine;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 
 namespace CleanPDF.App.Viewer;
@@ -17,9 +20,69 @@ public static class MarkupPalette
         ("Red", new MarkupColor(235, 60, 60)),
     ];
 
-    public static MarkupColor Current => Colors.FirstOrDefault(c => c.Name == AppSettings.Current.MarkupColor, Colors[0]).Color;
+    /// <summary>The chosen color: a palette name, or "#RRGGBB" for a color from the color picker.</summary>
+    public static MarkupColor Current =>
+        AppSettings.Current.MarkupColor is ['#', .. var hex] && hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb)
+            ? new MarkupColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)
+            : Colors.FirstOrDefault(c => c.Name == AppSettings.Current.MarkupColor, Colors[0]).Color;
 
     public static MarkupKind CurrentKind => Enum.TryParse<MarkupKind>(AppSettings.Current.MarkupKind, out var kind) ? kind : MarkupKind.Highlight;
+
+    /// <summary>How <paramref name="color"/> is kept in settings: its palette name, or "#RRGGBB".</summary>
+    public static string SettingValue(MarkupColor color) =>
+        Colors.FirstOrDefault(c => c.Color == color).Name ?? $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
+    /// <summary>
+    /// Color dots for a flyout: the palette, then <paramref name="selected"/> if it isn't in the palette, then a
+    /// button that swaps the flyout's content for a color picker. Picking a color hides the flyout first.
+    /// </summary>
+    public static StackPanel ColorRow(Flyout host, MarkupColor selected, Action<MarkupColor> choose)
+    {
+        void Choose(MarkupColor color)
+        {
+            host.Hide();
+            choose(color);
+        }
+
+        var ring = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+        var entries = Colors.ToList();
+        if (!entries.Any(e => e.Color == selected))
+            entries.Add((SettingValue(selected), selected));
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        foreach (var (name, color) in entries)
+        {
+            var dot = new Grid { Width = 24, Height = 24 };
+            if (color == selected)
+                dot.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Stroke = ring, StrokeThickness = 2 });
+            dot.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 16, Height = 16, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, color.R, color.G, color.B)) });
+            var button = new Button { Content = dot, Padding = new Thickness(2), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) };
+            ToolTipService.SetToolTip(button, name);
+            AutomationProperties.SetName(button, name);
+            button.Click += (s, e) => Choose(color);
+            row.Children.Add(button);
+        }
+
+        var more = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE710", FontSize = 12 },
+            Width = 28, Height = 28, Padding = new Thickness(0), CornerRadius = new CornerRadius(14), VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(more, "More colors");
+        AutomationProperties.SetName(more, "More colors");
+        more.Click += (s, e) =>
+        {
+            var picker = new ColorPicker
+            {
+                Color = Windows.UI.Color.FromArgb(255, selected.R, selected.G, selected.B),
+                IsAlphaEnabled = false, IsMoreButtonVisible = false, IsColorChannelTextInputVisible = false,
+            };
+            var use = new Button { Content = "Use color", Style = (Style)Application.Current.Resources["AccentButtonStyle"], HorizontalAlignment = HorizontalAlignment.Right };
+            use.Click += (s2, e2) => Choose(new MarkupColor(picker.Color.R, picker.Color.G, picker.Color.B));
+            host.Content = new StackPanel { Spacing = 10, Children = { picker, use } };
+        };
+        row.Children.Add(more);
+        return row;
+    }
 }
 
 /// <summary>Highlights, underlines and strikeouts: making them from the selection, and recoloring or deleting them.</summary>
@@ -137,17 +200,23 @@ public sealed partial class PdfViewer
     /// <summary>Clicking a markup (without dragging) opens its menu: colors and Delete.</summary>
     private void ShowMarkupMenu(Markup markup, Point at)
     {
-        var menu = new MenuFlyout();
-        foreach (var (name, color) in MarkupPalette.Colors)
+        var menu = new Flyout();
+        var delete = new Button
         {
-            var item = new RadioMenuFlyoutItem { Text = name, GroupName = "color", IsChecked = color == markup.Color };
-            item.Click += (s, e) => _ = RecolorAsync(markup, color);
-            menu.Items.Add(item);
-        }
-        menu.Items.Add(new MenuFlyoutSeparator());
-        var delete = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
-        delete.Click += (s, e) => _ = RemoveAsync(markup);
-        menu.Items.Add(delete);
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new SymbolIcon(Symbol.Delete), new TextBlock { Text = "Delete" } } },
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
+        };
+        delete.Click += (s, e) =>
+        {
+            menu.Hide();
+            _ = RemoveAsync(markup);
+        };
+        menu.Content = new StackPanel
+        {
+            Spacing = 6,
+            Children = { MarkupPalette.ColorRow(menu, markup.Color, color => _ = RecolorAsync(markup, color)), delete },
+        };
         menu.ShowAt(_surface, new FlyoutShowOptions { Position = at });
     }
 

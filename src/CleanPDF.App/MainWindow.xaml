@@ -84,7 +84,7 @@
                         <MenuFlyout x:Name="MainMenu" Placement="BottomEdgeAlignedLeft" Opening="MainMenu_Opening">
                             <!-- Most-used commands at the top level (like Acrobat's menu); the rest in View/Find/Help. -->
                             <MenuFlyoutItem Text="Open…" Click="Open_Click" KeyboardAcceleratorTextOverride="Ctrl+O">
-                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE838;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="Open recent files">
                                 <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutSubItem.Icon>
@@ -209,7 +209,7 @@
                 <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
                 <Button Style="{StaticResource ToolButton}" Click="Open_Click"
                         ToolTipService.ToolTip="Open (Ctrl+O)" AutomationProperties.Name="Open">
-                    <FontIcon Glyph="&#xE8E5;" FontSize="16" />
+                    <FontIcon Glyph="&#xE838;" FontSize="16" />
                 </Button>
                 <Button Style="{StaticResource ToolButton}" ToolTipService.ToolTip="Recent files" AutomationProperties.Name="Recent files">
                     <FontIcon Glyph="&#xE81C;" FontSize="16" />
@@ -260,7 +260,7 @@
                             <Rectangle x:Name="HighlightSwatch" Height="3" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1" Fill="#FFE600" />
                         </Grid>
                         <ToggleSplitButton.Flyout>
-                            <MenuFlyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
+                            <Flyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
                         </ToggleSplitButton.Flyout>
                     </ToggleSplitButton>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
@@ -326,7 +326,7 @@
                     <TextBlock Text="Open a PDF, or drop one anywhere on this window." Opacity="0.7" />
                     <Button Style="{StaticResource AccentButtonStyle}" Click="Open_Click" Padding="16,8">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <SymbolIcon Symbol="OpenFile" />
+                            <FontIcon Glyph="&#xE838;" FontSize="16" />
                             <TextBlock Text="Open PDF…" />
                         </StackPanel>
                     </Button>
