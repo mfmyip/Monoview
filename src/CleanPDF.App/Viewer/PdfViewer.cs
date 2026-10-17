@@ -19,7 +19,9 @@ namespace CleanPDF.App.Viewer;
 public enum FitMode { FitWidth, FitPage, Custom }
 
 /// <summary>What Reload carries over to the reopened document.</summary>
-public sealed record ViewState(int Page, double Zoom, FitMode FitMode, int Rotation, bool SinglePage, bool TwoPage = false);
+/// <summary>How a document is shown. With an offset, restoring returns to that exact scroll position, not the page top.</summary>
+public sealed record ViewState(int Page, double Zoom, FitMode FitMode, int Rotation, bool SinglePage, bool TwoPage = false,
+    double? OffsetX = null, double? OffsetY = null);
 
 /// <summary>
 /// Continuous-scroll page view. Pages are laid out in a column on a canvas inside a
@@ -147,7 +149,7 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>State to restore on first layout (Reload keeps page, zoom, rotation and layout).</summary>
     public ViewState? InitialState { get; set; }
 
-    public ViewState CaptureState() => new(CurrentPage, Zoom, FitMode, _rotation, _singlePage, _twoPage);
+    public ViewState CaptureState() => new(CurrentPage, Zoom, FitMode, _rotation, _singlePage, _twoPage, _scroller.HorizontalOffset, _scroller.VerticalOffset);
 
     /// <summary>Pages side by side in pairs, 1 and 2, then 3 and 4, scrolling continuously.</summary>
     public bool TwoPage => _twoPage;
@@ -495,7 +497,16 @@ public sealed partial class PdfViewer : UserControl
             {
                 // The ScrollViewer ignores ChangeView during its first layout pass; scroll on the next tick.
                 int page = Math.Clamp(restored.Page, 0, PageCount - 1);
-                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => GoToPage(page));
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    if (restored.OffsetY is { } y)
+                    {
+                        _pendingOffset = null;
+                        _scroller.ChangeView(restored.OffsetX, y, null, true);
+                    }
+                    else
+                        GoToPage(page);
+                });
             }
             InitialState = null;
         }

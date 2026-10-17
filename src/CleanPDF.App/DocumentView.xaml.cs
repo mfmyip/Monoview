@@ -153,7 +153,10 @@ public sealed partial class DocumentView : UserControl, IDisposable
     private void ShowThumbnails()
     {
         if (Thumbnails.ItemsSource is not null) return;
+        // Filling the list selects an item; that isn't a click, so it mustn't scroll the page.
+        _syncingThumbs = true;
         Thumbnails.ItemsSource = _thumbs;
+        _syncingThumbs = false;
         if (SelectAfterLoad is { Count: > 0 } pages)
         {
             // After a page operation, keep the moved or rotated pages selected.

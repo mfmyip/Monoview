@@ -35,7 +35,9 @@ public sealed partial class MainWindow
     {
         var view = CreateDocumentView(doc);
         var state = old.Viewer.CaptureState();
-        view.Viewer.InitialState = state with { Page = Math.Clamp(page ?? state.Page, 0, Math.Max(0, doc.PageCount - 1)) };
+        // Same pages: keep the exact scroll position. A page operation lands on the page it names instead.
+        view.Viewer.InitialState = page is null ? state
+            : state with { Page = Math.Clamp(page.Value, 0, Math.Max(0, doc.PageCount - 1)), OffsetX = null, OffsetY = null };
         view.SetSidebarVisible(old.IsSidebarVisible);
         view.SelectAfterLoad = select;
         DocumentHost.Children.Remove(old);

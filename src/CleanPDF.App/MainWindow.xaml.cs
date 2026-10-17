@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
         StartupTrace.Mark("xaml_loaded");
 
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 1400));
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "CleanPDF.ico"));
 
         // Windows draws a light title bar for desktop apps unless asked; match the app's theme.
         Root.ActualThemeChanged += (_, _) => UseDarkTitleBar(Root.ActualTheme == ElementTheme.Dark);
@@ -1249,6 +1250,19 @@ public sealed partial class MainWindow : Window
                     await doc.Viewer.MarkSelectionAsync(MarkupKind.Highlight, MarkupPalette.Current);
                     await Task.Delay(1500);
                     Console.Out.WriteLine($"HIGHLIGHT modified={doc.Document.IsModified} tab={(Tabs.SelectedItem as TabViewItem)?.Header}");
+                }
+                if (args.Contains("--undo-test"))
+                {
+                    double? Offset() => CurrentView?.Viewer.CaptureState().OffsetY;
+                    CurrentView?.Viewer.GoToPage(CurrentView.Viewer.CurrentPage, normalizedY: 0.4); // part way down a page, not at its top
+                    await Task.Delay(500);
+                    double? before = Offset();
+                    await StepHistoryAsync(redo: false);
+                    await Task.Delay(1000);
+                    double? undone = Offset();
+                    await StepHistoryAsync(redo: true);
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"UNDO_SCROLL before={before:F0} after_undo={undone:F0} after_redo={Offset():F0}");
                 }
                 if (args.Contains("--edit-pages")) { SetPageEditing(true); await Task.Delay(500); }
                 if (Arg("--pages-test") is { } insertFile)
