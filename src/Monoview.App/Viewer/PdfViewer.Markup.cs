@@ -158,6 +158,7 @@ public sealed partial class PdfViewer
         _tiles.RemoveWhere(k => k.Page == page);
         _previews.Invalidate(page);
         _markups.Remove(page);
+        _stamps.Remove(page);
         if (_views.TryGetValue(page, out var view))
         {
             view.MarkTilesStale(_w[page]);
@@ -178,7 +179,10 @@ public sealed partial class PdfViewer
         _texts.Clear();
         _links.Clear();
         _markups.Clear();
+        _stamps.Clear();
         _pressedMarkup = null;
+        _selectedStamp = null;
+        _stampDrag = null;
         foreach (var view in _views.Values)
         {
             view.MarkTilesStale(_w[view.Index]);

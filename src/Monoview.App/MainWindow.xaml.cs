@@ -67,7 +67,11 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.F11, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; ToggleFullScreen(); });
         AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; _ = CloseAllTabsAsync(); });
         // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
-        AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, (sender, e) => { if (_fullScreen) { e.Handled = true; SetFullScreen(false); } });
+        AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, (sender, e) =>
+        {
+            if (CurrentView?.Viewer.CancelStamp() == true) e.Handled = true; // stop placing a signature first
+            else if (_fullScreen) { e.Handled = true; SetFullScreen(false); }
+        });
         AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
 
         _searchDebounce = new DispatcherTimerLike(TimeSpan.FromMilliseconds(250), () => _ = RunSearchAsync());
@@ -95,7 +99,7 @@ public sealed partial class MainWindow : Window
             e.Cancel = true;
             await CloseWindowAsync();
         };
-        AddAccelerator(VirtualKey.H, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; HighlightCommand(); });
+        AddAccelerator(VirtualKey.H, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; MarkCommand(MarkupKind.Highlight); });
         // Undo/redo; in a text box they stay the text box's own.
         AddAccelerator(VirtualKey.Z, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: false); } });
         AddAccelerator(VirtualKey.Y, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: true); } });
@@ -469,14 +473,21 @@ public sealed partial class MainWindow : Window
     private bool _highlighterMode;
     private bool _syncingHighlighter;
 
-    /// <summary>Ctrl+H and the highlighter button: mark the selection, or turn highlighter mode on or off.</summary>
-    private void HighlightCommand()
+    /// <summary>
+    /// The highlight, underline and strikethrough buttons, and Ctrl+H: mark the selection that way, or with no
+    /// selection turn that marking mode on, or off if it was already on.
+    /// </summary>
+    private void MarkCommand(MarkupKind kind)
     {
         if (CurrentView is not { } view) return;
+        bool sameKind = MarkupPalette.CurrentKind == kind;
+        AppSettings.Current.MarkupKind = kind.ToString();
+        AppSettings.Save();
         if (view.Viewer.HasSelection)
-            _ = view.Viewer.MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
+            _ = view.Viewer.MarkSelectionAsync(kind, MarkupPalette.Current);
         else
-            SetHighlighterMode(!_highlighterMode);
+            SetHighlighterMode(!(_highlighterMode && sameKind));
+        UpdateMarkButtons();
     }
 
     private void SetHighlighterMode(bool on)
@@ -484,65 +495,43 @@ public sealed partial class MainWindow : Window
         _highlighterMode = on;
         foreach (var view in DocumentViews())
             view.Viewer.HighlighterMode = on;
+        UpdateMarkButtons();
+        if (on)
+        {
+            string verb = MarkupPalette.CurrentKind switch
+            {
+                MarkupKind.Underline => "Underlining",
+                MarkupKind.StrikeOut => "Striking through",
+                _ => "Highlighting",
+            };
+            ShowInfo($"{verb} on: select text to mark it. Click the button again to stop.");
+        }
+    }
+
+    /// <summary>The button of the marking mode that's on shows pressed; the others don't.</summary>
+    private void UpdateMarkButtons()
+    {
+        var kind = MarkupPalette.CurrentKind;
         _syncingHighlighter = true;
-        HighlightButton.IsChecked = on;
+        HighlightButton.IsChecked = _highlighterMode && kind == MarkupKind.Highlight;
         _syncingHighlighter = false;
-        if (on) ShowInfo("Highlighter on: select text to mark it. Click the button again to stop.");
+        UnderlineButton.IsChecked = _highlighterMode && kind == MarkupKind.Underline;
+        StrikeButton.IsChecked = _highlighterMode && kind == MarkupKind.StrikeOut;
     }
 
     private void HighlightButton_IsCheckedChanged(ToggleSplitButton sender, ToggleSplitButtonIsCheckedChangedEventArgs args)
     {
         if (_syncingHighlighter) return;
-        HighlightCommand();
-        // With a selection the click marked it; keep the button showing the mode, not the click.
-        _syncingHighlighter = true;
-        sender.IsChecked = _highlighterMode;
-        _syncingHighlighter = false;
+        MarkCommand(MarkupKind.Highlight);
     }
 
-    /// <summary>Style and color picker: a row of three styles drawn in the current color, then a row of color dots.</summary>
+    private void UnderlineButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Underline);
+    private void StrikeButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.StrikeOut);
+
+    /// <summary>The color panel under the highlighter's arrow; the color is shared by all three marking buttons.</summary>
     private void HighlightMenu_Opening(object? sender, object e)
     {
         var c = MarkupPalette.Current;
-        var brush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        var ring = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
-
-        var styles = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        var kinds = new (string Text, MarkupKind Kind)[]
-        {
-            ("Highlight", MarkupKind.Highlight), ("Underline", MarkupKind.Underline), ("Strikethrough", MarkupKind.StrikeOut),
-        };
-        foreach (var (text, kind) in kinds)
-        {
-            var sample = new Grid { Width = 20, Height = 22 };
-            if (kind == MarkupKind.Highlight)
-                sample.Children.Add(new Border { Background = brush, Opacity = 0.55, CornerRadius = new CornerRadius(2) });
-            sample.Children.Add(new TextBlock { Text = "A", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-            if (kind != MarkupKind.Highlight)
-                sample.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
-                {
-                    Fill = brush, Height = 2,
-                    VerticalAlignment = kind == MarkupKind.Underline ? VerticalAlignment.Bottom : VerticalAlignment.Center,
-                    Margin = kind == MarkupKind.Underline ? new Thickness(1, 0, 1, 1) : new Thickness(1, 1, 1, 0),
-                });
-            bool selected = MarkupPalette.CurrentKind == kind;
-            var button = new Button
-            {
-                Content = sample, Width = 40, Height = 36, Padding = new Thickness(0),
-                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                BorderBrush = selected ? ring : null, BorderThickness = new Thickness(selected ? 2 : 0),
-            };
-            ToolTipService.SetToolTip(button, text);
-            AutomationProperties.SetName(button, text);
-            button.Click += (s, args) =>
-            {
-                AppSettings.Current.MarkupKind = kind.ToString();
-                AppSettings.Save();
-                HighlightMenu.Hide();
-            };
-            styles.Children.Add(button);
-        }
-
         var colors = MarkupPalette.ColorRow(HighlightMenu, c, color =>
         {
             AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color);
@@ -550,13 +539,82 @@ public sealed partial class MainWindow : Window
             UpdateHighlightSwatch();
         });
 
-        HighlightMenu.Content = new StackPanel { Spacing = 10, Children = { styles, colors } };
+        HighlightMenu.Content = colors;
+    }
+
+    // ---------------- Signatures ----------------
+
+    /// <summary>The Sign menu: saved signatures to place, each with a delete button, then New signature.</summary>
+    private void SignMenu_Opening(object? sender, object e)
+    {
+        var list = new StackPanel { Spacing = 6, MinWidth = 260 };
+        list.Children.Add(new TextBlock { Text = "Signatures", Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
+        var files = Signatures.Files;
+        if (files.Count == 0)
+            list.Children.Add(new TextBlock { Text = "No saved signatures yet.", Opacity = 0.7 });
+        foreach (string file in files)
+        {
+            var image = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file)), Height = 48, MaxWidth = 220, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform };
+            // White behind the ink, so dark signatures show in the dark theme too.
+            var place = new Button
+            {
+                Content = new Border { Background = new SolidColorBrush(Microsoft.UI.Colors.White), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), Child = image },
+                HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(2),
+            };
+            ToolTipService.SetToolTip(place, "Place this signature: click where it goes");
+            place.Click += async (_, _) =>
+            {
+                SignMenu.Hide();
+                await BeginPlacingAsync(await Signatures.LoadAsync(file));
+            };
+            var delete = new Button { Content = new FontIcon { Glyph = "\uE74D", FontSize = 14 }, VerticalAlignment = VerticalAlignment.Stretch };
+            ToolTipService.SetToolTip(delete, "Delete this saved signature");
+            AutomationProperties.SetName(delete, "Delete signature");
+            delete.Click += (_, _) =>
+            {
+                Signatures.Delete(file);
+                SignMenu_Opening(null, EventArgs.Empty);
+            };
+            var row = new Grid { ColumnSpacing = 6 };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(delete, 1);
+            row.Children.Add(place);
+            row.Children.Add(delete);
+            list.Children.Add(row);
+        }
+        var create = new Button { Content = "New signature…", Style = (Style)Application.Current.Resources["AccentButtonStyle"], HorizontalAlignment = HorizontalAlignment.Stretch };
+        create.Click += async (_, _) =>
+        {
+            SignMenu.Hide();
+            await NewSignatureAsync();
+        };
+        list.Children.Add(create);
+        SignMenu.Content = list;
+    }
+
+    /// <summary>Makes a signature in the dialog, then starts placing it.</summary>
+    private async Task NewSignatureAsync(string? typedName = null)
+    {
+        StampPicture? made = null;
+        await RunDialogAsync(async root => made = await SignatureDialog.ShowAsync(root, WinRT.Interop.WindowNative.GetWindowHandle(this), typedName));
+        if (made is not null) await BeginPlacingAsync(made);
+    }
+
+    private Task BeginPlacingAsync(StampPicture picture)
+    {
+        if (CurrentView is not { } view) return Task.CompletedTask;
+        SetHighlighterMode(false);
+        view.Viewer.PendingStamp = picture;
+        ShowInfo("Click where the signature goes. Drag it to move, drag its corner to resize, Delete removes it. Esc cancels.");
+        return Task.CompletedTask;
     }
 
     private void UpdateHighlightSwatch()
     {
         var c = MarkupPalette.Current;
-        HighlightSwatch.Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+        var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = brush;
     }
 
     /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>
@@ -1604,6 +1662,15 @@ public sealed partial class MainWindow : Window
                     if (shown.IsFaulted) Console.Out.WriteLine($"DIALOG_ERROR {shown.Exception!.InnerException}");
                 }
                 if (args.Contains("--menu")) { MainMenu.ShowAt(MenuButton); await Task.Delay(500); }
+                if (Arg("--sign-test") is { } signaturePng)
+                {
+                    var picture = await Signatures.LoadAsync(signaturePng);
+                    await CurrentView!.Viewer.PlaceStampAsync(picture, 0, 0.7, 0.42);
+                    await Task.Delay(1200);
+                    Console.Out.WriteLine($"SIGNED stamps={(await CurrentView.Document.GetStampsAsync(0)).Count} modified={CurrentView.Document.IsModified} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
+                }
+                if (args.Contains("--sign-menu")) { SignMenu.ShouldConstrainToRootBounds = true; SignMenu.ShowAt(SignButton); await Task.Delay(1000); }
+                if (Arg("--sign-dialog") is { } typedName) { _ = NewSignatureAsync(typedName.Length > 0 ? typedName : null); await Task.Delay(1200); }
                 if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(HighlightButton); await Task.Delay(1000); }
                 if (args.Contains("--tab-menu") && Tabs.SelectedItem is TabViewItem selectedTab)
                 {

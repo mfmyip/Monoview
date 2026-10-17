@@ -597,6 +597,11 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Single-page keys: ←/→ flip; Page Down/Space/↓ at the bottom (or Up keys at the top) flip too.</summary>
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if ((e.Key == VirtualKey.Delete && DeleteSelectedStamp()) || (e.Key == VirtualKey.Escape && CancelStamp()))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!_singlePage || !_laidOut) return;
         int step = e.Key switch
         {
@@ -657,6 +662,7 @@ public sealed partial class PdfViewer : UserControl
                 EnsureText(i);
                 EnsureLinks(i);
                 EnsureMarkups(i);
+                EnsureStamps(i);
             }
         }
 
@@ -859,6 +865,11 @@ public sealed partial class PdfViewer : UserControl
         if (!point.Properties.IsLeftButtonPressed) return;
 
         _scroller.Focus(FocusState.Pointer);
+        if (HandleStampPress(e, point.Position))
+        {
+            e.Handled = true;
+            return;
+        }
         bool shiftDown = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
         if (!shiftDown && BeginLinkClick(point.Position))
         {
@@ -894,6 +905,7 @@ public sealed partial class PdfViewer : UserControl
             AutoScrollWhileSelecting(e.GetCurrentPoint(_scroller).Position);
             return;
         }
+        if (HandleStampMove(point.Position)) return;
 
         if (LinkAt(point.Position) is not null)
         {
@@ -933,6 +945,7 @@ public sealed partial class PdfViewer : UserControl
     {
         if (HandleAutoScrollRelease(e)) return;
         if (EndLinkClick(e.GetCurrentPoint(_surface).Position)) return;
+        if (HandleStampRelease(e)) return;
         if (!_selecting) return;
         _selecting = false;
         _surface.ReleasePointerCapture(e.Pointer);
@@ -1064,6 +1077,7 @@ public sealed partial class PdfViewer : UserControl
         view.Overlay.Children.Clear();
         int page = view.Index;
         if (page < 0) return;
+        DrawStampOverlay(view);
 
         bool hasHits = _hits.TryGetValue(page, out var hits);
         (int Start, int End)? selection = SelectionOnPage(page);

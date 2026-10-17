@@ -255,10 +255,11 @@
                         <FontIcon Glyph="&#xE8A3;" FontSize="16" />
                     </Button>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
-                    <!-- Highlighter: click marks the selection, or turns highlighter mode on; the arrow picks style and color. -->
+                    <!-- Highlight, underline, strikethrough: a click marks the selection, or with none turns that marking mode on.
+                         The highlighter's arrow picks the color all three use. -->
                     <ToggleSplitButton x:Name="HighlightButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0"
                                        CornerRadius="4" IsCheckedChanged="HighlightButton_IsCheckedChanged"
-                                       ToolTipService.ToolTip="Highlight (Ctrl+H). With no text selected, turns highlighter mode on or off."
+                                       ToolTipService.ToolTip="Highlight (Ctrl+H). With no text selected, turns highlighting on or off."
                                        AutomationProperties.Name="Highlight">
                         <Grid Width="18" Height="20">
                             <FontIcon Glyph="&#xE7E6;" FontSize="16" VerticalAlignment="Top" />
@@ -268,6 +269,32 @@
                             <Flyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
                         </ToggleSplitButton.Flyout>
                     </ToggleSplitButton>
+                    <ToggleButton x:Name="UnderlineButton" Height="32" Width="32" Padding="0" Background="Transparent" BorderThickness="0"
+                                  CornerRadius="4" Click="UnderlineButton_Click"
+                                  ToolTipService.ToolTip="Underline. With no text selected, turns underlining on or off."
+                                  AutomationProperties.Name="Underline">
+                        <Grid Width="16" Height="20">
+                            <TextBlock Text="U" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Top" />
+                            <Rectangle x:Name="UnderlineSwatch" Height="2" VerticalAlignment="Bottom" Margin="0,0,0,1" Fill="#FFE600" />
+                        </Grid>
+                    </ToggleButton>
+                    <ToggleButton x:Name="StrikeButton" Height="32" Width="32" Padding="0" Background="Transparent" BorderThickness="0"
+                                  CornerRadius="4" Click="StrikeButton_Click"
+                                  ToolTipService.ToolTip="Strikethrough. With no text selected, turns striking through on or off."
+                                  AutomationProperties.Name="Strikethrough">
+                        <Grid Width="16" Height="20">
+                            <TextBlock Text="S" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Rectangle x:Name="StrikeSwatch" Height="2" VerticalAlignment="Center" Margin="0,1,0,0" Fill="#FFE600" />
+                        </Grid>
+                    </ToggleButton>
+                    <!-- Sign: pick a saved signature and click the page to place it, or make a new one. -->
+                    <DropDownButton x:Name="SignButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0" CornerRadius="4"
+                                    ToolTipService.ToolTip="Sign: place a saved signature, or make a new one" AutomationProperties.Name="Sign">
+                        <FontIcon Glyph="&#xEDFB;" FontSize="16" />
+                        <DropDownButton.Flyout>
+                            <Flyout x:Name="SignMenu" Placement="BottomEdgeAlignedLeft" Opening="SignMenu_Opening" />
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
                     <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
                              AutomationProperties.Name="Page number"

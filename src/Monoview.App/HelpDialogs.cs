@@ -39,6 +39,11 @@ internal static class HelpDialogs
             ("← / →", "Previous / next page (single page view)"),
             ("Middle-click", "Autoscroll (click again or Esc to stop)"),
         ]),
+        ("Signatures", [
+            ("Sign button", "Place a saved signature, or make one: draw, type or use a picture"),
+            ("Drag / drag the corner", "Move / resize a placed signature"),
+            ("Delete / Esc", "Delete the selected signature / stop placing"),
+        ]),
         ("Pages, in the sidebar", [
             ("Ctrl+click / Shift+click", "Select several pages"),
             ("Drag", "Reorder pages; drop a PDF or picture from Explorer to insert it"),
