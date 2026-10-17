@@ -487,10 +487,10 @@ $RECYCLE.BIN/
 publish/
 
 # '*.app' above targets macOS bundles; it also matches this project folder
-!/src/CleanPDF.App/
+!/src/Monoview.App/
 
 # Shareable build
-CleanPDF-*.zip
+Monoview-*.zip
 
 # Scratch folder (screen recordings etc.)
 Temp/
