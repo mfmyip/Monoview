@@ -12,6 +12,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\CleanPDF.ico</ApplicationIcon>
     <!-- Program.cs has its own Main (single-instance redirection). -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -36,6 +37,11 @@
          also ships ONNX Runtime + DirectML (~38 MB) for its AI APIs, which we don't use. -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260803003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\CleanPDF.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="Assets\CleanPDF.svg" />
   </ItemGroup>
 
   <ItemGroup>
