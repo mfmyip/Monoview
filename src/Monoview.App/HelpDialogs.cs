@@ -39,6 +39,14 @@ internal static class HelpDialogs
             ("← / →", "Previous / next page (single page view)"),
             ("Middle-click", "Autoscroll (click again or Esc to stop)"),
         ]),
+        ("Markup bar", [
+            ("Ctrl+Shift+A", "Show or hide the markup bar"),
+            ("Draw, line, arrow, rectangle, ellipse", "Drag on the page; the bar sets color, fill and line width"),
+            ("Text box / note", "Drag or click, then type; double-click a text box or click a note to change it"),
+            ("Crop", "Drag over the part of the page to keep"),
+            ("Drag / drag the corner / Delete", "Move / resize / delete the selected object"),
+            ("Esc", "Back to Select"),
+        ]),
         ("Signatures", [
             ("Sign button", "Place a saved signature, or make one: draw, type or use a picture"),
             ("Drag / drag the corner", "Move / resize a placed signature"),

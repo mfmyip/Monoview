@@ -38,7 +38,7 @@ public class StampTests
         using var doc = await PdfDocument.OpenAsync(SamplePdf.Path);
         await doc.AddStampAsync(0, new NormRect(0.2f, 0.4f, 0.6f, 0.5f), W, H, Picture());
         Assert.True(doc.IsModified);
-        var stamp = Assert.Single(await doc.GetStampsAsync(0));
+        var stamp = Assert.Single(await doc.GetShapesAsync(0));
         Assert.InRange(stamp.Rect.Left, 0.19f, 0.21f);
         Assert.InRange(stamp.Rect.Bottom, 0.49f, 0.51f);
 
@@ -62,7 +62,7 @@ public class StampTests
         using var doc = await PdfDocument.OpenAsync(SamplePdf.Path);
         await doc.AddStampAsync(0, new NormRect(0.4f, 0.4f, 0.6f, 0.45f), W, H, Picture());
         await doc.RenderAsync(0, 612, 792);
-        await doc.MoveStampAsync(Assert.Single(await doc.GetStampsAsync(0)), new NormRect(0.2f, 0.3f, 0.8f, 0.6f));
+        await doc.MoveShapeAsync(Assert.Single(await doc.GetShapesAsync(0)), new NormRect(0.2f, 0.3f, 0.8f, 0.6f));
         Assert.True(IsRed(await PixelAt(doc, 0, 0.7, 0.35)), "top half fills the larger rect");
         Assert.True(IsBlue(await PixelAt(doc, 0, 0.7, 0.55)), "bottom half fills the larger rect");
     }
@@ -77,7 +77,7 @@ public class StampTests
             {
                 await doc.AddStampAsync(0, new NormRect(0.2f, 0.4f, 0.6f, 0.5f), W, H, Picture());
                 await doc.RenderAsync(0, 612, 792); // builds the appearance before the move
-                await doc.MoveStampAsync(Assert.Single(await doc.GetStampsAsync(0)), new NormRect(0.3f, 0.7f, 0.9f, 0.85f));
+                await doc.MoveShapeAsync(Assert.Single(await doc.GetShapesAsync(0)), new NormRect(0.3f, 0.7f, 0.9f, 0.85f));
                 Assert.True(IsWhite(await PixelAt(doc, 0, 0.45, 0.42)), "old place is empty");
                 Assert.True(IsRed(await PixelAt(doc, 0, 0.7, 0.73)), "new place, top half");
                 Assert.True(IsBlue(await PixelAt(doc, 0, 0.7, 0.82)), "new place, bottom half");
@@ -86,11 +86,11 @@ public class StampTests
             }
 
             using var saved = await PdfDocument.OpenAsync(path);
-            var stamp = Assert.Single(await saved.GetStampsAsync(0));
+            var stamp = Assert.Single(await saved.GetShapesAsync(0));
             Assert.InRange(stamp.Rect.Top, 0.69f, 0.71f);
             Assert.True(IsRed(await PixelAt(saved, 0, 0.7, 0.73)), "saved file shows the picture");
-            await saved.RemoveStampAsync(stamp);
-            Assert.Empty(await saved.GetStampsAsync(0));
+            await saved.RemoveShapeAsync(stamp);
+            Assert.Empty(await saved.GetShapesAsync(0));
             await saved.CloseAsync();
         }
         finally

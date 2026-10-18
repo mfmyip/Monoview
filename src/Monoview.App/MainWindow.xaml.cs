@@ -69,7 +69,7 @@ public sealed partial class MainWindow : Window
         // Esc leaves full screen; otherwise let it through (search box, autoscroll, selection).
         AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, (sender, e) =>
         {
-            if (CurrentView?.Viewer.CancelStamp() == true) e.Handled = true; // stop placing a signature first
+            if (CurrentView?.Viewer.CancelShapeEditing() == true) e.Handled = true; // stop placing a signature first
             else if (_fullScreen) { e.Handled = true; SetFullScreen(false); }
         });
         AddAccelerator(VirtualKey.F1, VirtualKeyModifiers.None, (sender, e) => { e.Handled = true; _ = RunDialogAsync(HelpDialogs.ShowShortcutsAsync); });
@@ -107,6 +107,8 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoBack(); });
         AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoForward(); });
 
+        BuildMarkupBar();
+        AddAccelerator(VirtualKey.A, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; SetMarkupBarVisible(MarkupBar.Visibility != Visibility.Visible); });
         UpdateToolbar();
         UpdateHighlightSwatch();
     }
@@ -456,6 +458,8 @@ public sealed partial class MainWindow : Window
                 if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
         };
         view.Viewer.HighlighterMode = _highlighterMode;
+        view.Viewer.ToolStyle = CurrentShapeStyle();
+        view.Viewer.ToolChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateToolButtons(); };
         // A dot before the file name marks unsaved changes, as in most editors.
         view.Viewer.PagesEdited += (_, _) =>
         {
@@ -605,6 +609,7 @@ public sealed partial class MainWindow : Window
     {
         if (CurrentView is not { } view) return Task.CompletedTask;
         SetHighlighterMode(false);
+        view.Viewer.Tool = MarkupTool.Select;
         view.Viewer.PendingStamp = picture;
         ShowInfo("Click where the signature goes. Drag it to move, drag its corner to resize, Delete removes it. Esc cancels.");
         return Task.CompletedTask;
@@ -1005,6 +1010,8 @@ public sealed partial class MainWindow : Window
         // Document tools only appear when there's a document; the tab strip only when there are tabs.
         var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
         SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
+        MarkupBar.Visibility = CurrentView is not null && AppSettings.Current.MarkupBarVisible ? Visibility.Visible : Visibility.Collapsed;
+        UpdateToolButtons();
         Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
         UpdatePageLabel();
@@ -1667,7 +1674,36 @@ public sealed partial class MainWindow : Window
                     var picture = await Signatures.LoadAsync(signaturePng);
                     await CurrentView!.Viewer.PlaceStampAsync(picture, 0, 0.7, 0.42);
                     await Task.Delay(1200);
-                    Console.Out.WriteLine($"SIGNED stamps={(await CurrentView.Document.GetStampsAsync(0)).Count} modified={CurrentView.Document.IsModified} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
+                    Console.Out.WriteLine($"SIGNED stamps={(await CurrentView.Document.GetShapesAsync(0)).Count} modified={CurrentView.Document.IsModified} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
+                }
+                if (args.Contains("--shapes-test"))
+                {
+                    // One of each drawing tool on page 1, in the page as shown, then the markup bar for the screenshot.
+                    SetMarkupBarVisible(true);
+                    var viewer = CurrentView!.Viewer;
+                    viewer.ToolStyle = new ShapeStyle(new MarkupColor(220, 40, 40), new MarkupColor(255, 230, 120), 3);
+                    var ink = Enumerable.Range(0, 30).Select(i => (0.08 + i * 0.01, 0.3 + 0.03 * Math.Sin(i / 3.0))).ToList();
+                    await viewer.DrawAsync(MarkupTool.Ink, 0, ink);
+                    await viewer.DrawAsync(MarkupTool.Line, 0, [(0.45, 0.28), (0.6, 0.34)]);
+                    await viewer.DrawAsync(MarkupTool.Arrow, 0, [(0.65, 0.34), (0.85, 0.28)]);
+                    await viewer.DrawAsync(MarkupTool.Rectangle, 0, [(0.1, 0.4), (0.35, 0.5)]);
+                    await viewer.DrawAsync(MarkupTool.Ellipse, 0, [(0.45, 0.4), (0.7, 0.5)]);
+                    await CurrentView.Document.AddNoteAsync(0, 0.8, 0.42, "A note", new MarkupColor(255, 210, 0));
+                    await CurrentView.Document.AddTextBoxAsync(0, new NormRect(0.1f, 0.52f, 0.5f, 0.56f), "A text box", viewer.ToolStyle with { Stroke = new MarkupColor(20, 20, 20), FontSize = 16 });
+                    viewer.ReplaceDocument(CurrentView.Document); // redraw after the two direct engine calls
+                    await Task.Delay(1500);
+                    var kinds = (await CurrentView.Document.GetShapesAsync(0)).Select(s => s.Kind);
+                    Console.Out.WriteLine($"SHAPES {string.Join(",", kinds)} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo} tool={viewer.Tool}");
+                }
+                if (args.Contains("--crop-test"))
+                {
+                    var before = CurrentView!.Document.PageSizes[0];
+                    await CurrentView.Viewer.DrawAsync(MarkupTool.Crop, 0, [(0.1, 0.1), (0.9, 0.5)]);
+                    await Task.Delay(1200);
+                    var cropped = CurrentView!.Document.PageSizes[0];
+                    await StepHistoryAsync(redo: false);
+                    await Task.Delay(1000);
+                    Console.Out.WriteLine($"CROP before={before} cropped={cropped} after_undo={CurrentView!.Document.PageSizes[0]}");
                 }
                 if (args.Contains("--sign-menu")) { SignMenu.ShouldConstrainToRootBounds = true; SignMenu.ShowAt(SignButton); await Task.Delay(1000); }
                 if (Arg("--sign-dialog") is { } typedName) { _ = NewSignatureAsync(typedName.Length > 0 ? typedName : null); await Task.Delay(1200); }

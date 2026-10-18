@@ -75,6 +75,12 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <!-- The markup bar, a second row like Preview's: tools and their style, filled in code. -->
+            <StackPanel x:Name="MarkupBar" Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="2" Margin="0,4,0,0" Visibility="Collapsed" />
 
             <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                 <!-- ☰ menu: every command as text, with its shortcut, for when you don't know the icon or the key. -->
@@ -295,6 +301,13 @@
                             <Flyout x:Name="SignMenu" Placement="BottomEdgeAlignedLeft" Opening="SignMenu_Opening" />
                         </DropDownButton.Flyout>
                     </DropDownButton>
+                    <ToggleButton x:Name="MarkupToggle" Height="32" Width="36" Padding="0" Background="Transparent" BorderThickness="0"
+                                  CornerRadius="4" Click="MarkupToggle_Click"
+                                  ToolTipService.ToolTip="Markup tools: draw, shapes, text boxes and notes (Ctrl+Shift+A)" AutomationProperties.Name="Markup tools">
+                        <!-- A pen over a square: drawing and shapes, unlike the highlighter's marker. -->
+                        <Path Data="M2,6 L2,16 L12,16 L12,12 M6,12 L16,2 L18,4 L8,14 L5,15 Z" Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                              StrokeThickness="1.4" StrokeLineJoin="Round" Width="20" Height="18" />
+                    </ToggleButton>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
                     <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
                              AutomationProperties.Name="Page number"

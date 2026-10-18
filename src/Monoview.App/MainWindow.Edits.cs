@@ -129,6 +129,10 @@ public sealed partial class MainWindow
                     var moved = Enumerable.Range(request.Destination, pages.Count).ToList();
                     ReplaceView(tab, view, doc, closeOldDocument: false, page: moved[0], select: moved);
                     break;
+                case PageAction.Crop:
+                    await doc.CropPageAsync(pages[0], request.Area!.Value);
+                    ReplaceView(tab, view, doc, closeOldDocument: false, page: pages[0]);
+                    break;
                 case PageAction.CopyFrom:
                     int to = Math.Clamp(request.Destination, 0, doc.PageCount);
                     int copied = await doc.InsertPagesFromAsync(request.Source!, to, pages);

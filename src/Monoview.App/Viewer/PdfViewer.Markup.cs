@@ -20,11 +20,14 @@ public static class MarkupPalette
         ("Red", new MarkupColor(235, 60, 60)),
     ];
 
-    /// <summary>The chosen color: a palette name, or "#RRGGBB" for a color from the color picker.</summary>
-    public static MarkupColor Current =>
-        AppSettings.Current.MarkupColor is ['#', .. var hex] && hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb)
+    /// <summary>The chosen markup color.</summary>
+    public static MarkupColor Current => Parse(AppSettings.Current.MarkupColor) ?? Colors[0].Color;
+
+    /// <summary>A color kept in settings: a palette name, or "#RRGGBB" for one from the color picker. Null when empty or unknown.</summary>
+    public static MarkupColor? Parse(string? value) =>
+        value is ['#', .. var hex] && hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb)
             ? new MarkupColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)
-            : Colors.FirstOrDefault(c => c.Name == AppSettings.Current.MarkupColor, Colors[0]).Color;
+            : Colors.Where(c => c.Name == value).Select(c => (MarkupColor?)c.Color).FirstOrDefault();
 
     public static MarkupKind CurrentKind => Enum.TryParse<MarkupKind>(AppSettings.Current.MarkupKind, out var kind) ? kind : MarkupKind.Highlight;
 
@@ -158,7 +161,7 @@ public sealed partial class PdfViewer
         _tiles.RemoveWhere(k => k.Page == page);
         _previews.Invalidate(page);
         _markups.Remove(page);
-        _stamps.Remove(page);
+        _shapes.Remove(page);
         if (_views.TryGetValue(page, out var view))
         {
             view.MarkTilesStale(_w[page]);
@@ -179,10 +182,11 @@ public sealed partial class PdfViewer
         _texts.Clear();
         _links.Clear();
         _markups.Clear();
-        _stamps.Clear();
+        _shapes.Clear();
         _pressedMarkup = null;
-        _selectedStamp = null;
-        _stampDrag = null;
+        _selected = null;
+        _drag = null;
+        _drawing = null;
         foreach (var view in _views.Values)
         {
             view.MarkTilesStale(_w[view.Index]);

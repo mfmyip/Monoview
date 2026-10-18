@@ -7,7 +7,7 @@ using Windows.System;
 
 namespace Monoview.App;
 
-public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, CopyFrom, Extract, ExportImages }
+public enum PageAction { RotateLeft, RotateRight, Delete, Move, InsertFromFile, CopyFrom, Crop, Extract, ExportImages }
 
 public static class PageActions
 {
@@ -20,7 +20,7 @@ public static class PageActions
 /// <see cref="Pages"/> are pages of <see cref="Source"/>, another open document.
 /// </summary>
 public sealed record PageRequest(PageAction Action, IReadOnlyList<int> Pages, int Destination = 0, string? FilePath = null,
-    Monoview.Engine.PdfDocument? Source = null);
+    Monoview.Engine.PdfDocument? Source = null, Monoview.Engine.NormRect? Area = null);
 
 /// <summary>The page sidebar as an editor: drag to reorder, Delete, right-click actions, drop a PDF to insert.</summary>
 public sealed partial class DocumentView

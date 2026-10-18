@@ -597,7 +597,17 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Single-page keys: ←/→ flip; Page Down/Space/↓ at the bottom (or Up keys at the top) flip too.</summary>
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if ((e.Key == VirtualKey.Delete && DeleteSelectedStamp()) || (e.Key == VirtualKey.Escape && CancelStamp()))
+        if (_textEditor is not null)
+        {
+            // Typing in a text box: its keys are its own; Esc ends the edit and keeps the text.
+            if (e.Key == VirtualKey.Escape)
+            {
+                CommitTextEditor();
+                e.Handled = true;
+            }
+            return;
+        }
+        if ((e.Key == VirtualKey.Delete && DeleteSelectedShape()) || (e.Key == VirtualKey.Escape && CancelShapeEditing()))
         {
             e.Handled = true;
             return;
@@ -662,7 +672,7 @@ public sealed partial class PdfViewer : UserControl
                 EnsureText(i);
                 EnsureLinks(i);
                 EnsureMarkups(i);
-                EnsureStamps(i);
+                EnsureShapes(i);
             }
         }
 
@@ -865,7 +875,7 @@ public sealed partial class PdfViewer : UserControl
         if (!point.Properties.IsLeftButtonPressed) return;
 
         _scroller.Focus(FocusState.Pointer);
-        if (HandleStampPress(e, point.Position))
+        if (HandleShapePress(e, point.Position))
         {
             e.Handled = true;
             return;
@@ -905,7 +915,7 @@ public sealed partial class PdfViewer : UserControl
             AutoScrollWhileSelecting(e.GetCurrentPoint(_scroller).Position);
             return;
         }
-        if (HandleStampMove(point.Position)) return;
+        if (HandleShapeMove(point.Position)) return;
 
         if (LinkAt(point.Position) is not null)
         {
@@ -945,7 +955,7 @@ public sealed partial class PdfViewer : UserControl
     {
         if (HandleAutoScrollRelease(e)) return;
         if (EndLinkClick(e.GetCurrentPoint(_surface).Position)) return;
-        if (HandleStampRelease(e)) return;
+        if (HandleShapeRelease(e, e.GetCurrentPoint(_surface).Position)) return;
         if (!_selecting) return;
         _selecting = false;
         _surface.ReleasePointerCapture(e.Pointer);
@@ -967,6 +977,7 @@ public sealed partial class PdfViewer : UserControl
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         var p = e.GetPosition(_surface);
+        if (HandleShapeDoubleTap(p)) return;
         if (HitTest(p, out var text) is not { } pos || text is null) return;
         int page = pos.Page;
         var (cx, cy) = ToPageCoords(page, p);
@@ -1077,7 +1088,7 @@ public sealed partial class PdfViewer : UserControl
         view.Overlay.Children.Clear();
         int page = view.Index;
         if (page < 0) return;
-        DrawStampOverlay(view);
+        DrawShapeOverlay(view);
 
         bool hasHits = _hits.TryGetValue(page, out var hits);
         (int Start, int End)? selection = SelectionOnPage(page);
