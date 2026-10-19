@@ -116,6 +116,33 @@ public class PageOperationTests
     }
 
     [Fact]
+    public async Task Crops_a_page_and_keeps_it_after_save()
+    {
+        string path = TempPath();
+        try
+        {
+            using (var doc = await OpenSample())
+            {
+                var before = doc.PageSizes.ToArray();
+                await doc.CropPageAsync(0, new NormRect(0.25f, 0.25f, 0.75f, 0.5f));
+                Assert.Equal(before[0].Width / 2, doc.PageSizes[0].Width, 1);
+                Assert.Equal(before[0].Height / 4, doc.PageSizes[0].Height, 1);
+                Assert.Equal(before[2], doc.PageSizes[2]); // other pages keep their size
+                Assert.True(doc.IsModified);
+                await doc.SaveCopyAsync(path);
+                await doc.CloseAsync();
+            }
+            using var saved = await PdfDocument.OpenAsync(path);
+            Assert.Equal(306, saved.PageSizes[0].Width, 1);
+            await saved.CloseAsync();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Inserts_a_picture_as_a_page()
     {
         using var doc = await OpenSample();

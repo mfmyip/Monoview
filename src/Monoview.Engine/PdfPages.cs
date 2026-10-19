@@ -63,6 +63,18 @@ public sealed partial class PdfDocument
         return indices?.Length ?? source.PageCount;
     });
 
+    /// <summary>
+    /// Crops a page to <paramref name="rect"/> (unrotated normalized page coordinates): its crop box, the area
+    /// readers show and print, becomes that part of the page. The content outside stays in the file.
+    /// </summary>
+    public Task CropPageAsync(int pageIndex, NormRect rect) => PdfiumThread.Run(() =>
+    {
+        var bounds = PlaceRect(pageIndex, rect, out _);
+        if (bounds.Right - bounds.Left < 1 || bounds.Top - bounds.Bottom < 1) throw new PdfException("The crop area is too small.");
+        FPDFPage_SetCropBox(GetPage(pageIndex).__Instance, bounds.Left, bounds.Bottom, bounds.Right, bounds.Top);
+        PagesChanged();
+    });
+
     /// <summary>Writes the given pages, in order, to a new PDF at <paramref name="path"/>. This document is unchanged.</summary>
     public Task ExtractPagesAsync(IReadOnlyList<int> pages, string path) => PdfiumThread.Run(() =>
     {
@@ -96,6 +108,7 @@ public sealed partial class PdfDocument
     }
 
     [DllImport("pdfium")] private static extern void FPDFPage_Delete(IntPtr doc, int index);
+    [DllImport("pdfium")] private static extern void FPDFPage_SetCropBox(IntPtr page, float left, float bottom, float right, float top);
     [DllImport("pdfium")] private static extern int FPDF_MovePages(IntPtr doc, int[] pageIndices, ulong length, int destination);
     [DllImport("pdfium")] private static extern int FPDFPage_GetRotation(IntPtr page);
     [DllImport("pdfium")] private static extern void FPDFPage_SetRotation(IntPtr page, int rotate);

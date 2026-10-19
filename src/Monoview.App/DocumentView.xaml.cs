@@ -60,6 +60,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
         // Fill the thumbnail list once the first page is sharp (or after a second, if rendering
         // fails), so it doesn't slow the first paint.
         Viewer.FirstPageRendered += (_, _) => ShowThumbnails();
+        Viewer.CropRequested += (_, crop) => PageRequested?.Invoke(this, new PageRequest(PageAction.Crop, [crop.Page], Area: crop.Area));
         _thumbnailFallback = DispatcherQueue.CreateTimer();
         _thumbnailFallback.Interval = TimeSpan.FromSeconds(1);
         _thumbnailFallback.IsRepeating = false;
