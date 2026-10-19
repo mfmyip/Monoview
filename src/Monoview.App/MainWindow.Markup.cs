@@ -86,23 +86,32 @@ public sealed partial class MainWindow
 
     private static Microsoft.UI.Xaml.Shapes.Path PathIcon(string data, bool filled = false)
     {
-        var foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
         var path = new Microsoft.UI.Xaml.Shapes.Path
         {
             Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), data),
-            Stroke = foreground, StrokeThickness = 1.5, StrokeLineJoin = PenLineJoin.Round,
+            StrokeThickness = 1.5, StrokeLineJoin = PenLineJoin.Round,
             StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
             Width = 18, Height = 18, Stretch = Stretch.None,
         };
-        if (filled) path.Fill = foreground;
+        // Take the button's text color, like the "T" tool does, so the icon follows the window's theme and
+        // the checked state; Application.Current.Resources only knows the Windows theme.
+        path.Loaded += (_, _) =>
+        {
+            DependencyObject? presenter = path;
+            while (presenter is not null and not ContentPresenter) presenter = VisualTreeHelper.GetParent(presenter);
+            if (presenter is null) return;
+            var color = new Microsoft.UI.Xaml.Data.Binding { Source = presenter, Path = new PropertyPath("Foreground") };
+            path.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.StrokeProperty, color);
+            if (filled) path.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.FillProperty, color);
+        };
         return path;
     }
 
-    private static Border Swatch() => new()
-    {
-        Width = 16, Height = 16, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1),
-        BorderBrush = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-    };
+    // Built from XAML so ThemeResource follows the window's theme setting.
+    private static Border Swatch() => (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="16" Height="16" CornerRadius="8"
+                BorderThickness="1" BorderBrush="{ThemeResource TextFillColorSecondaryBrush}" />
+        """);
 
     /// <summary>A small drop-down whose flyout content is built each time it opens.</summary>
     private static DropDownButton StyleButton(string name, FrameworkElement icon, Func<Flyout, FrameworkElement> content)
