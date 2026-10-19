@@ -14,6 +14,15 @@ internal static partial class AppRegistration
     private const string Classes = @"Software\Classes";
     private const string Capabilities = @"Software\Monoview\Capabilities";
 
+    /// <summary>True in the MSIX build, which declares .pdf in its manifest and can't write these keys for the shell.</summary>
+    public static bool IsPackaged { get; } = HasPackage();
+
+    private static bool HasPackage()
+    {
+        uint length = 0;
+        return GetCurrentPackageFullName(ref length, IntPtr.Zero) != 15700 /* APPMODEL_ERROR_NO_PACKAGE */;
+    }
+
     public static bool IsRegistered()
     {
         using var key = Registry.CurrentUser.OpenSubKey($@"{Classes}\{ProgId}\shell\open\command");
@@ -69,4 +78,7 @@ internal static partial class AppRegistration
 
     [LibraryImport("shell32.dll")]
     private static partial void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetCurrentPackageFullName(ref uint length, IntPtr name);
 }

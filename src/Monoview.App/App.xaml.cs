@@ -103,13 +103,19 @@ public partial class App : Application
             var dispatcher = DispatcherQueue.GetForCurrentThread();
             AppInstance.GetCurrent().Activated += (_, e) =>
             {
-                string commandLine = e.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch ? launch.Arguments : "";
+                // The MSIX build gets file activations from its .pdf association; the plain .exe gets a command line.
+                string[] files = e.Data switch
+                {
+                    Windows.ApplicationModel.Activation.IFileActivatedEventArgs file => file.Files.Select(f => f.Path).Where(File.Exists).ToArray(),
+                    Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch => Program.FilesFromCommandLine(launch.Arguments),
+                    _ => [],
+                };
                 // Files from Explorer go to the window used last, like a browser.
                 dispatcher.TryEnqueue(() =>
                 {
                     var target = _lastActive ?? NewWindow();
                     target.BringToFront();
-                    target.OpenFiles(Program.FilesFromCommandLine(commandLine));
+                    target.OpenFiles(files);
                 });
             };
         }

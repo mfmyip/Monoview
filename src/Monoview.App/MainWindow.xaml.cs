@@ -1019,8 +1019,8 @@ public sealed partial class MainWindow : Window
         UpdateZoomLabel();
         UpdateSearchCount();
         bool registered = AppRegistration.IsRegistered();
-        RegisterButton.Visibility = registered ? Visibility.Collapsed : Visibility.Visible;
-        UnregisterButton.Visibility = registered ? Visibility.Visible : Visibility.Collapsed;
+        RegisterButton.Visibility = registered || AppRegistration.IsPackaged ? Visibility.Collapsed : Visibility.Visible;
+        UnregisterButton.Visibility = registered && !AppRegistration.IsPackaged ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdatePageLabel()
