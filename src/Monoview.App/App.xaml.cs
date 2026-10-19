@@ -49,6 +49,7 @@ public partial class App : Application
         _benchmark = benchmark;
         InitializeComponent();
         UnhandledException += (_, e) => CrashLog.Write(e.Exception);
+        LiveText.Enable();
         // Dev aid: --trace-exceptions prints every exception as it's thrown (finds crashes in dispatcher callbacks).
         if (args.Contains("--trace-exceptions"))
             AppDomain.CurrentDomain.FirstChanceException += (_, e) =>

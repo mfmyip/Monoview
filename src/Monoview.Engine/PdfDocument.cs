@@ -227,9 +227,6 @@ public sealed partial class PdfDocument : IDisposable
     /// </summary>
     public Task PrefetchPageAsync(int pageIndex) => PdfiumThread.Run(() => { GetPage(pageIndex); });
 
-    public Task<PageText> GetTextAsync(int pageIndex, WorkPriority priority = WorkPriority.High, CancellationToken ct = default) =>
-        PdfiumThread.Run(() => GetText(pageIndex), priority, ct);
-
     /// <summary>Converts a point in PDF user space (e.g. a link or bookmark target) to normalized page coordinates.</summary>
     public Task<(double X, double Y)> PageToNormalizedAsync(int pageIndex, double x, double y) =>
         PdfiumThread.Run(() => GetTransform(pageIndex).Apply(x, y));
@@ -257,6 +254,8 @@ public sealed partial class PdfDocument : IDisposable
             ct.ThrowIfCancellationRequested();
             int pageIndex = i;
             var text = _searchTexts[i] ?? await PdfiumThread.Run(() => GetSearchText(pageIndex), WorkPriority.Low, ct);
+            if (text.IsEmpty && Recognizer is not null)
+                text = new SearchText((await GetTextAsync(pageIndex, WorkPriority.Low, ct)).Text);
             var hits = text.Find(pageIndex, needle, options);
             if (hits.Count > 0)
                 onPageHits(hits);
@@ -527,6 +526,8 @@ internal sealed class SearchText
     private readonly int[] _map;
 
     public SearchText(string text) => _normalized = Normalize(text, out _map);
+
+    public bool IsEmpty => _normalized.Length == 0;
 
     public static string Normalize(string text, out int[] map)
     {

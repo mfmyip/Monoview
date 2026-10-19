@@ -1508,6 +1508,13 @@ public sealed partial class MainWindow : Window
                 if (Arg("--rotate") is { } turns) { doc.Viewer.Rotate(int.Parse(turns)); await Task.Delay(800); }
                 if (args.Contains("--single-page")) { doc.Viewer.SetSinglePage(true); await Task.Delay(300); }
                 if (args.Contains("--two-page")) { doc.Viewer.SetTwoPage(true); await Task.Delay(800); }
+                if (args.Contains("--live-text-test"))
+                {
+                    // Scans and photos: the text Windows OCR finds, as selection, copy and search see it.
+                    var watch = Stopwatch.StartNew();
+                    var text = await doc.Document.GetTextAsync(doc.Viewer.CurrentPage);
+                    Console.Out.WriteLine($"LIVETEXT ms={watch.ElapsedMilliseconds} chars={text.Length} text={text.Text.ReplaceLineEndings(" | ")}");
+                }
                 if (args.Contains("--highlight-test"))
                 {
                     // Select the first words of page 1 and highlight them, as a user would with Ctrl+H.

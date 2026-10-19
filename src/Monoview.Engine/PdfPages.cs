@@ -89,6 +89,7 @@ public sealed partial class PdfDocument
     {
         _openPages.Clear();
         _texts.Clear();
+        ForgetRecognizedText();
         _links.Clear();
         ReadPageSizes();
         IsModified = true;

@@ -3,7 +3,8 @@ namespace Monoview.Engine;
 /// <summary>
 /// The text of one page with a box per character, extracted once from PDFium so hit-testing,
 /// selection and highlight geometry run in managed code without going back to the PDFium thread.
-/// Character indices match PDFium's (one UTF-16 unit per character).
+/// Character indices match PDFium's (one UTF-16 unit per character); text found by recognition (see
+/// PdfLiveText.cs) is laid out the same way.
 /// </summary>
 public sealed class PageText
 {
