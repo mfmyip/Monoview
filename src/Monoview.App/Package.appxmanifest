@@ -6,7 +6,7 @@
   IgnorableNamespaces="uap rescap">
 
   <!-- Name, Publisher and PublisherDisplayName must match Partner Center > Product identity. -->
-  <Identity Name="Monoview" Publisher="CN=Monoview" Version="0.1.0.0" />
+  <Identity Name="Monoview" Publisher="CN=Monoview" Version="0.1.1.0" />
 
   <Properties>
     <DisplayName>Monoview</DisplayName>
