@@ -1694,18 +1694,25 @@ public sealed partial class MainWindow : Window
                 if (args.Contains("--shapes-test"))
                 {
                     // One of each drawing tool on page 1, in the page as shown, then the markup bar for the screenshot.
+                    // Laid out on the first page of the Alice sample so it reads like review notes.
                     SetMarkupBarVisible(true);
                     var viewer = CurrentView!.Viewer;
-                    viewer.ToolStyle = new ShapeStyle(new MarkupColor(220, 40, 40), new MarkupColor(255, 230, 120), 3);
-                    var ink = Enumerable.Range(0, 30).Select(i => (0.08 + i * 0.01, 0.3 + 0.03 * Math.Sin(i / 3.0))).ToList();
-                    await viewer.DrawAsync(MarkupTool.Ink, 0, ink);
-                    await viewer.DrawAsync(MarkupTool.Line, 0, [(0.45, 0.28), (0.6, 0.34)]);
-                    await viewer.DrawAsync(MarkupTool.Arrow, 0, [(0.65, 0.34), (0.85, 0.28)]);
-                    await viewer.DrawAsync(MarkupTool.Rectangle, 0, [(0.1, 0.4), (0.35, 0.5)]);
-                    await viewer.DrawAsync(MarkupTool.Ellipse, 0, [(0.45, 0.4), (0.7, 0.5)]);
-                    await CurrentView.Document.AddNoteAsync(0, 0.8, 0.42, "A note", new MarkupColor(255, 210, 0));
-                    await CurrentView.Document.AddTextBoxAsync(0, new NormRect(0.1f, 0.52f, 0.5f, 0.56f), "A text box", viewer.ToolStyle with { Stroke = new MarkupColor(20, 20, 20), FontSize = 16 });
-                    viewer.ReplaceDocument(CurrentView.Document); // redraw after the two direct engine calls
+                    var red = new MarkupColor(214, 48, 49);
+                    var blue = new MarkupColor(30, 100, 200);
+                    await CurrentView.Document.AddMarkupAsync(0, MarkupKind.Highlight, new MarkupColor(255, 226, 80),
+                        [new NormRect(0.580f, 0.340f, 0.766f, 0.360f), new NormRect(0.117f, 0.362f, 0.355f, 0.382f)]);
+                    await CurrentView.Document.AddMarkupAsync(0, MarkupKind.Underline, blue, [new NormRect(0.458f, 0.418f, 0.693f, 0.438f)]);
+                    viewer.ToolStyle = new ShapeStyle(red, null, 2.5f);
+                    await viewer.DrawAsync(MarkupTool.Ellipse, 0, [(0.362, 0.153), (0.540, 0.191)]);
+                    var bracket = Enumerable.Range(0, 30).Select(i => (0.088 + 0.004 * Math.Sin(i / 2.5), 0.398 + i * 0.0064)).ToList();
+                    await viewer.DrawAsync(MarkupTool.Ink, 0, bracket);
+                    await viewer.DrawAsync(MarkupTool.Line, 0, [(0.117, 0.722), (0.482, 0.722)]);
+                    viewer.ToolStyle = new ShapeStyle(blue, null, 2);
+                    await viewer.DrawAsync(MarkupTool.Rectangle, 0, [(0.103, 0.194), (0.731, 0.286)]);
+                    await viewer.DrawAsync(MarkupTool.Arrow, 0, [(0.79, 0.43), (0.70, 0.428)]);
+                    await CurrentView.Document.AddNoteAsync(0, 0.76, 0.20, "Great opening line.", new MarkupColor(255, 210, 0));
+                    await CurrentView.Document.AddTextBoxAsync(0, new NormRect(0.795f, 0.408f, 0.985f, 0.452f), "Use this quote", new ShapeStyle(blue, new MarkupColor(232, 241, 252), 1, 13));
+                    viewer.ReplaceDocument(CurrentView.Document); // redraw after the direct engine calls
                     await Task.Delay(1500);
                     var kinds = (await CurrentView.Document.GetShapesAsync(0)).Select(s => s.Kind);
                     Console.Out.WriteLine($"SHAPES {string.Join(",", kinds)} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo} tool={viewer.Tool}");
