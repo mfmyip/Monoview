@@ -466,6 +466,7 @@ public sealed partial class MainWindow : Window
             if (TabOf(view) is { } tab) UpdateTabHeader(tab);
         };
         view.Viewer.BeforeEdit = () => TabOf(view) is { } tab ? HistoryFor(tab).CheckpointAsync(view.Document) : Task.CompletedTask;
+        view.Viewer.CancelEdit = () => { if (TabOf(view) is { } tab) HistoryFor(tab).DropLast(); };
         view.PageRequested += (_, request) => _ = RunPageRequestAsync(view, request);
         view.PageEditing = _pageEditing;
         view.PageEditingChanged += (_, on) => SetPageEditing(on);
@@ -1180,7 +1181,14 @@ public sealed partial class MainWindow : Window
 
     private void Accel_Copy(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e)
     {
-        if (TextBoxHasFocus() || CurrentView is not { } view || !view.Viewer.HasSelection) return;
+        if (TextBoxHasFocus() || CurrentView is not { } view) return;
+        if (view.Viewer.FormHasFocus)
+        {
+            e.Handled = true;
+            _ = view.Viewer.CopyFromFieldAsync();
+            return;
+        }
+        if (!view.Viewer.HasSelection) return;
         e.Handled = true;
         _ = view.Viewer.CopySelectionAsync();
     }
@@ -1189,7 +1197,7 @@ public sealed partial class MainWindow : Window
     {
         if (TextBoxHasFocus() || CurrentView is not { } view) return;
         e.Handled = true;
-        _ = view.Viewer.SelectAllAsync();
+        _ = view.Viewer.FormHasFocus ? view.Viewer.SelectAllInFieldAsync() : view.Viewer.SelectAllAsync();
     }
 
     private void Accel_ZoomIn(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e) { e.Handled = true; CurrentView?.Viewer.ZoomIn(); }
@@ -1694,6 +1702,29 @@ public sealed partial class MainWindow : Window
                     await Task.Delay(1500);
                     var kinds = (await CurrentView.Document.GetShapesAsync(0)).Select(s => s.Kind);
                     Console.Out.WriteLine($"SHAPES {string.Join(",", kinds)} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo} tool={viewer.Tool}");
+                }
+                if (args.Contains("--form-test"))
+                {
+                    // Types into the first text field and checks the first check box, through the document's form engine.
+                    var form = CurrentView!.Document;
+                    var fields = await form.GetFormFieldsAsync(0);
+                    Console.Out.WriteLine($"FORM has={form.HasForm} fields={string.Join(",", fields.Select(f => $"{f.Name}:{f.Kind}"))}");
+                    if (fields.FirstOrDefault(f => f.Kind == FormFieldKind.Text) is { } text)
+                    {
+                        var (x, y) = ((text.Rect.Left + text.Rect.Right) / 2, (text.Rect.Top + text.Rect.Bottom) / 2);
+                        await form.FormPointerAsync(0, FormPointer.Down, x, y);
+                        await form.FormPointerAsync(0, FormPointer.Up, x, y);
+                        foreach (char c in "Grace Hopper") await form.FormCharAsync(c);
+                    }
+                    if (fields.FirstOrDefault(f => f.Kind == FormFieldKind.CheckBox) is { } box)
+                    {
+                        var (x, y) = ((box.Rect.Left + box.Rect.Right) / 2, (box.Rect.Top + box.Rect.Bottom) / 2);
+                        await form.FormPointerAsync(0, FormPointer.Down, x, y);
+                        await form.FormPointerAsync(0, FormPointer.Up, x, y);
+                    }
+                    await Task.Delay(1000);
+                    var after = await form.GetFormFieldsAsync(0);
+                    Console.Out.WriteLine($"FORM values={string.Join(",", after.Select(f => $"{f.Name}={f.Value}{(f.IsChecked ? "[x]" : "")}"))} modified={form.IsModified}");
                 }
                 if (args.Contains("--crop-test"))
                 {

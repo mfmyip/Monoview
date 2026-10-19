@@ -27,6 +27,7 @@ public sealed partial class PdfDocument
     /// </summary>
     public Task SaveCopyAsync(string path) => PdfiumThread.Run(() =>
     {
+        CommitFormFocus();
         using var file = File.Create(path);
         WriteTo(Doc.__Instance, file);
     });
@@ -34,6 +35,7 @@ public sealed partial class PdfDocument
     /// <summary>The whole document as PDF bytes, for undo snapshots.</summary>
     public Task<byte[]> SaveToBytesAsync() => PdfiumThread.Run(() =>
     {
+        CommitFormFocus();
         using var memory = new MemoryStream();
         WriteTo(Doc.__Instance, memory);
         return memory.ToArray();

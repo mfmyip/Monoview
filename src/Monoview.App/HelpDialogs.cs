@@ -39,6 +39,13 @@ internal static class HelpDialogs
             ("← / →", "Previous / next page (single page view)"),
             ("Middle-click", "Autoscroll (click again or Esc to stop)"),
         ]),
+        ("Forms", [
+            ("Click a field", "Type in it, tick it, or open its list"),
+            ("Tab / Shift+Tab", "Next / previous field"),
+            ("Space", "Tick or untick the check box with focus"),
+            ("Ctrl+A / C / X / V", "Select all, copy, cut, paste in the field"),
+            ("Esc or a click outside", "Leave the field"),
+        ]),
         ("Markup bar", [
             ("Ctrl+Shift+A", "Show or hide the markup bar"),
             ("Draw, line, arrow, rectangle, ellipse", "Drag on the page; the bar sets color, fill and line width"),
