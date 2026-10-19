@@ -185,7 +185,7 @@ public sealed partial class MainWindow
         MarkupBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         MarkupToggle.IsChecked = visible;
         AppSettings.Current.MarkupBarVisible = visible;
-        AppSettings.Save();
+        if (!_benchmark) AppSettings.Save(); // dev runs leave your settings alone
         if (!visible && CurrentView is { } view) view.Viewer.Tool = MarkupTool.Select;
     }
 

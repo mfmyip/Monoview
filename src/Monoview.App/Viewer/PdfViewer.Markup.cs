@@ -143,6 +143,7 @@ public sealed partial class PdfViewer
     /// <summary>Stops timers and autoscroll before the view is thrown away.</summary>
     public void Close()
     {
+        DetachForm(_doc);
         _settleTimer.Stop();
         StopAutoScroll();
     }
@@ -176,7 +177,9 @@ public sealed partial class PdfViewer
     /// </summary>
     public void ReplaceDocument(PdfDocument doc)
     {
+        DetachForm(_doc);
         _doc = doc;
+        AttachForm(doc);
         _previews.Document = doc;
         _tiles.Clear();
         _texts.Clear();

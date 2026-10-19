@@ -31,7 +31,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <SelectorBar x:Name="SidebarTabs" SelectionChanged="SidebarTabs_SelectionChanged">
+            <SelectorBar x:Name="SidebarTabs" HorizontalAlignment="Center" SelectionChanged="SidebarTabs_SelectionChanged">
                 <SelectorBarItem x:Name="ThumbnailsTab" Text="Pages" IsSelected="True" />
                 <SelectorBarItem x:Name="OutlineTab" Text="Outline" />
                 <SelectorBarItem x:Name="SearchTab" Text="Search" />

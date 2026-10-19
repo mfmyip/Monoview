@@ -48,8 +48,13 @@ public sealed partial class PdfDocument : IDisposable
         _pageSizes = [];
         _transforms = [];
         _searchTexts = [];
-        _openPages = new LruCache<int, FpdfPageT>(OpenPageCacheSize, page => fpdfview.FPDF_ClosePage(page));
+        _openPages = new LruCache<int, FpdfPageT>(OpenPageCacheSize, page =>
+        {
+            OnPageClosing(page.__Instance);
+            fpdfview.FPDF_ClosePage(page);
+        });
         ReadPageSizes();
+        InitForm();
     }
 
     /// <summary>Reads page sizes and resets per-page caches; runs on the PDFium thread.</summary>
@@ -141,6 +146,7 @@ public sealed partial class PdfDocument : IDisposable
                 fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
                 fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, rotate,
                     RenderFlagAnnot | RenderFlagLcdText);
+                DrawForm(bitmap.__Instance, page.__Instance, -region.X, -region.Y, fullWidth, fullHeight, rotate, RenderFlagAnnot | RenderFlagLcdText);
             }
             finally
             {
@@ -287,6 +293,7 @@ public sealed partial class PdfDocument : IDisposable
         return _closed = PdfiumThread.Run(() =>
         {
             _openPages.Clear();
+            ExitForm();
             if (_doc is not null)
             {
                 fpdfview.FPDF_CloseDocument(_doc);
@@ -321,6 +328,7 @@ public sealed partial class PdfDocument : IDisposable
         if (IsNull(page))
             throw new PdfException($"Could not load page {index + 1} (PDFium error {fpdfview.FPDF_GetLastError()}).");
         _openPages.Add(index, page);
+        OnPageLoaded(index, page.__Instance);
         return page;
     }
 
