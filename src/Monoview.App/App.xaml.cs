@@ -103,7 +103,7 @@ public partial class App : Application
             var dispatcher = DispatcherQueue.GetForCurrentThread();
             AppInstance.GetCurrent().Activated += (_, e) =>
             {
-                // The MSIX build gets file activations from its .pdf association; the plain .exe gets a command line.
+                // The MSIX build gets file activations from its file associations; the plain .exe gets a command line.
                 string[] files = e.Data switch
                 {
                     Windows.ApplicationModel.Activation.IFileActivatedEventArgs file => file.Files.Select(f => f.Path).Where(File.Exists).ToArray(),
