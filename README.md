@@ -155,7 +155,16 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
 
 ## Download
 
-There is no release yet. The first one will be published on [GitHub Releases](https://github.com/mfmyip/Monoview/releases) and winget. Until then, build it from source; it takes a minute.
+Get the latest version from [GitHub Releases](https://github.com/mfmyip/Monoview/releases):
+
+| File | What it is |
+|---|---|
+| `Monoview-x.y.z-win-x64.msi` | The installer. It installs for you only, with no admin prompt, adds Monoview to the Start menu and to "Open with" for PDF, PNG and JPG, and uninstalls from Settings > Apps. |
+| `Monoview-x.y.z-win-x64.zip` | The portable app. Unzip it anywhere and run `Monoview.exe`; nothing is installed. |
+
+To make Monoview your default PDF app, pick it in Settings > Apps > Default apps.
+
+> **Windows SmartScreen:** the builds are not code-signed yet, so Windows may show "Windows protected your PC" the first time. Click **More info**, then **Run anyway**.
 
 **Requirements:** Windows 10 version 1809 or later, or Windows 11, on x64. The app is self-contained, so you don't need to install .NET.
 
@@ -168,6 +177,12 @@ git clone https://github.com/mfmyip/Monoview.git
 cd Monoview
 dotnet publish src/Monoview.App -c Release -p:Platform=x64 -r win-x64 -o publish/win-x64
 publish\win-x64\Monoview.exe
+```
+
+Build a release, the portable zip and the installer, into `artifacts\`. The version comes from `src/Monoview.App/Monoview.App.csproj`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-release.ps1
 ```
 
 Run the engine tests:
@@ -188,7 +203,7 @@ dotnet test tests/Monoview.Engine.Tests
 - Redaction that truly removes content, not just covers it.
 - More shapes: rounded rectangles, speech bubbles, stars and polygons.
 - Font, bold and italic for text boxes; dashed lines and arrow ends.
-- An installer and portable build on GitHub Releases, then winget.
+- A winget package and a signed build.
 
 ## Credits
 

@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!-- Builds the per-user MSI from a published app folder. build-release.ps1 passes Version and PublishDir. -->
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <OutputName>Monoview-$(Version)-win-x64</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <DefineConstants>Version=$(Version);PublishDir=$(PublishDir)</DefineConstants>
+    <!-- Per-user installs keep files in the user profile with registry key paths, which these checks are written
+         for per-machine installs to flag. ICE03: some .NET DLLs carry a language id in their version info that
+         Windows Installer validation calls invalid; it is only metadata. -->
+    <SuppressIces>ICE03;ICE38;ICE64;ICE91</SuppressIces>
+  </PropertyGroup>
+</Project>

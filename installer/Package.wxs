@@ -1,0 +1,69 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!--
+    Monoview for the current user only: no admin prompt. Installs to %LOCALAPPDATA%\Programs\Monoview, adds a
+    Start menu shortcut, and offers Monoview in "Open with" for PDF, PNG and JPG, the same registration the app's
+    own menu writes. Windows lets the user, not the app, pick the default in Settings > Default apps.
+    The UpgradeCode never changes, so a newer MSI replaces an older one.
+  -->
+  <Package Name="Monoview" Manufacturer="Monoview" Version="$(var.Version)" Scope="perUser"
+           UpgradeCode="8DAC5690-28B8-4319-BA3E-48DBD5737694">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Monoview is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="MonoviewIcon" SourceFile="..\src\Monoview.App\Assets\Monoview.ico" />
+    <Property Id="ARPPRODUCTICON" Value="MonoviewIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/mfmyip/Monoview" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/mfmyip/Monoview/issues" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Monoview" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="StartMenu" Name="Monoview" Description="A fast, clean PDF viewer"
+                  Target="[INSTALLFOLDER]Monoview.exe" WorkingDirectory="INSTALLFOLDER" Icon="MonoviewIcon" />
+        <RegistryValue Root="HKCU" Key="Software\Monoview\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Component Id="OpenWith" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document" Type="string" Value="Monoview Document" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot;,0" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+
+      <RegistryValue Root="HKCU" Key="Software\Classes\.pdf\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe" Name="FriendlyAppName" Type="string" Value="Monoview" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".pdf" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".png" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpg" Type="string" Value="" />
+      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpeg" Type="string" Value="" />
+
+      <!-- Lists Monoview in Settings > Default apps. -->
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities" Name="ApplicationName" Type="string" Value="Monoview" />
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities" Name="ApplicationDescription" Type="string" Value="A fast, clean PDF viewer and editor." />
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".pdf" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKCU" Key="Software\RegisteredApplications" Name="Monoview" Type="string" Value="Software\Monoview\Capabilities" />
+    </Component>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="OpenWith" />
+    </Feature>
+  </Package>
+</Wix>
