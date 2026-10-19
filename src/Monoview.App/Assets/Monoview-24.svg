@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<defs><linearGradient id="tile" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D9E5F5"/></linearGradient><clipPath id="lens"><circle cx="10.4" cy="10.4" r="5.4"/></clipPath></defs>
+<rect x="0.5" y="0.5" width="23" height="23" rx="5.5" fill="url(#tile)" stroke="#CFDAE8" stroke-width="1"/>
+<g clip-path="url(#lens)">
+<rect x="5" y="5" width="5.4" height="10.8" fill="#4A78A8"/>
+<rect x="10.4" y="5" width="5.4" height="10.8" fill="#FFFFFF"/>
+<rect x="11.6" y="8.8" width="2.8" height="1.1" rx="0.55" fill="#A9BFD8"/>
+<rect x="11.6" y="11" width="2" height="1.1" rx="0.55" fill="#A9BFD8"/>
+</g>
+<circle cx="10.4" cy="10.4" r="6.6" fill="none" stroke="#0B2545" stroke-width="2.4"/>
+<path d="M15.2 15.2 Q16.4 19.6 20.6 19.8" fill="none" stroke="#1B4478" stroke-width="1.6" stroke-linecap="round"/>
+</svg>
