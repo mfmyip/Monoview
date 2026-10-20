@@ -36,7 +36,7 @@ jobs:
         run: gh release create $env:GITHUB_REF_NAME artifacts/*.zip artifacts/*.msi artifacts/SHA256SUMS.txt --title "Monoview $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
 
       - name: Keep the Store bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: store-bundle
           path: artifacts/*.msixbundle

@@ -211,7 +211,7 @@ public sealed partial class MainWindow : Window
         tab.AllowDrop = true;
         tab.DragEnter += (_, _) =>
         {
-            if (s_tabDrag is not null || Tabs.SelectedItem == tab) return;
+            if (s_tabDrag is not null || ReferenceEquals(Tabs.SelectedItem, tab)) return;
             _hoverTab = tab;
             _hoverSwitch.Restart();
         };
@@ -1696,7 +1696,7 @@ public sealed partial class MainWindow : Window
                     other.MoveTab((TabViewItem)other.Tabs.SelectedItem, this);
                     await Task.Delay(1000);
                     Console.Out.WriteLine($"TABS moved back, empty window closed: {Windows_()} windows={App.Current.Windows.Count}");
-                    var firstTab = Tabs.TabItems.OfType<TabViewItem>().First(t => t.Tag == first);
+                    var firstTab = Tabs.TabItems.OfType<TabViewItem>().First(t => ReferenceEquals(t.Tag, first));
                     await CloseTabAsync(firstTab);
                     ReopenClosedTab();
                     await Task.Delay(1000);
