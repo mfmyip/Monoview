@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
         Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
         {
             DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
+            DocumentHost.Margin = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 6 : 0, 0, 0);
             TabOutline.Visibility = Tabs.Visibility;
         });
         Tabs.LayoutUpdated += (_, _) =>
@@ -232,14 +233,16 @@ public sealed partial class MainWindow : Window
         tab.AllowDrop = true;
         tab.DragEnter += (_, _) =>
         {
-            if (s_tabDrag is not null || ReferenceEquals(Tabs.SelectedItem, tab)) return;
+            if (ReferenceEquals(Tabs.SelectedItem, tab)) return;
             _hoverTab = tab;
             _hoverSwitch.Restart();
         };
         tab.DragLeave += (_, _) =>
         {
             if (_hoverTab == tab) _hoverSwitch.Stop();
-        };        if (view is not null)
+        };
+        AttachTabDrag(tab);
+        if (view is not null)
         {
             view.Visibility = Visibility.Collapsed;
             DocumentHost.Children.Add(view);
@@ -311,148 +314,6 @@ public sealed partial class MainWindow : Window
         MoveTab(tab, window);
     }
 
-    /// <summary>The tab being dragged, and its window, so another window can take it.</summary>
-    private static (MainWindow Window, TabViewItem Tab)? s_tabDrag;
-    private const string TabDragFormat = "Monoview.Tab";
-
-    /// <summary>Where the pointer grabbed the dragged tab, and its width, so a window can tell where the tab's edges are.</summary>
-    private static (double Grab, double Width) s_tabGrab;
-
-    private bool IsTabFromOtherWindow(DragEventArgs e) =>
-        s_tabDrag is { } drag && drag.Window != this && e.DataView.Contains(TabDragFormat);
-
-    private void Tabs_TabDragStarting(TabView sender, TabViewTabDragStartingEventArgs args)
-    {
-        // A home tab has no document to move to another window.
-        if (args.Tab.Tag is null)
-        {
-            args.Cancel = true;
-            return;
-        }
-        s_tabDrag = (this, args.Tab);
-        s_tabGrab = (PointerIn(args.Tab)?.X ?? args.Tab.ActualWidth / 2, args.Tab.ActualWidth);
-        args.Data.SetData(TabDragFormat, "tab");
-        args.Data.RequestedOperation = DataPackageOperation.Move;
-        // The other windows place the tab themselves, with a placeholder. A tab strip's own drop handling opens a
-        // gap only near its end, and changing its tabs while it handles the drag crashes the app.
-        foreach (var window in App.Current.Windows.Where(w => w != this))
-            window.Tabs.AllowDropTabs = false;
-    }
-
-    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args) => EndTabDrag();
-
-    /// <summary>Clears a finished tab drag in every window. Also run after a drop, because a window left without tabs closes before its drag completes.</summary>
-    private static void EndTabDrag()
-    {
-        s_tabDrag = null;
-        foreach (var window in App.Current.Windows)
-        {
-            window.TakeIncomingTab(null);
-            window.Tabs.AllowDropTabs = true;
-        }
-    }
-
-    /// <summary>
-    /// A tab from another window held over this one: a greyed-out tab with its file name where it will land, and
-    /// its view, built and drawn unseen behind the current one, so the drop shows the document at once.
-    /// </summary>
-    private (TabViewItem Placeholder, DocumentView View)? _incoming;
-
-    /// <summary>Puts the placeholder for the dragged tab at <paramref name="index"/> among this window's tabs.</summary>
-    private void ShowIncomingTab(int index)
-    {
-        if (s_tabDrag is not { Tab.Tag: DocumentView source }) return;
-        if (_incoming is not { } incoming)
-        {
-            var view = CreateDocumentView(source.Document);
-            view.Viewer.InitialState = source.Viewer.CaptureState();
-            view.SetSidebarVisible(source.IsSidebarVisible);
-            view.Opacity = 0;
-            view.IsHitTestVisible = false;
-            DocumentHost.Children.Insert(0, view);
-            var placeholder = new TabViewItem
-            {
-                Header = Path.GetFileName(source.Document.Path), IconSource = new SymbolIconSource { Symbol = Symbol.Document },
-                IsClosable = false, IsHitTestVisible = false, Opacity = 0.45,
-            };
-            _incoming = incoming = (placeholder, view);
-            if (_incomingTracker is null)
-            {
-                _incomingTracker = DispatcherQueue.CreateTimer();
-                _incomingTracker.Interval = TimeSpan.FromMilliseconds(16);
-                _incomingTracker.Tick += (_, _) => TrackIncomingTab();
-            }
-            _incomingTracker.Start();
-        }
-        int at = Tabs.TabItems.IndexOf(incoming.Placeholder);
-        if (at == index) return;
-        if (at >= 0) Tabs.TabItems.RemoveAt(at);
-        Tabs.TabItems.Insert(Math.Min(index, Tabs.TabItems.Count), incoming.Placeholder);
-        SlideTabs();
-        Tabs.Visibility = Visibility.Visible;
-    }
-
-    /// <summary>
-    /// Removes the dragged tab's placeholder. Returns the view built for it, and the placeholder's place, when it shows
-    /// <paramref name="doc"/>; otherwise closes the view and returns null.
-    /// </summary>
-    private (DocumentView View, int Index)? TakeIncomingTab(PdfDocument? doc)
-    {
-        if (_incoming is not { } incoming) return null;
-        _incoming = null;
-        _incomingTracker?.Stop();
-        int index = Tabs.TabItems.IndexOf(incoming.Placeholder);
-        Tabs.TabItems.Remove(incoming.Placeholder);
-        DocumentHost.Children.Remove(incoming.View);
-        if (!ReferenceEquals(incoming.View.Document, doc))
-        {
-            incoming.View.Close(closeDocument: false);
-            Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            return null;
-        }
-        incoming.View.Opacity = 1;
-        incoming.View.IsHitTestVisible = true;
-        return (incoming.View, index);
-    }
-
-    /// <summary>Dropped away from every window: the tab gets a window of its own where it was let go.</summary>
-    private void Tabs_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
-    {
-        GetCursorPos(out var cursor);
-        var at = new Windows.Graphics.PointInt32(cursor.X - 160, cursor.Y - 20);
-        if (Tabs.TabItems.Count == 1) AppWindow.Move(at); // the only tab: just move its window
-        else MoveToNewWindow(args.Tab, at);
-    }
-
-    private double _incomingX;
-
-    /// <summary>
-    /// Where a tab dragged with the pointer at <paramref name="x"/> lands, counting the tabs without its placeholder.
-    /// A tab gets out of the way once the dragged tab's leading edge is a quarter of the way into it. The placeholder
-    /// only moves the way the pointer moves, so it can't flip back and forth over a tab.
-    /// </summary>
-    private int TabIndexAt(double x)
-    {
-        var tabs = Tabs.TabItems.OfType<TabViewItem>().ToList();
-        int placeholder = _incoming is { } incoming ? tabs.IndexOf(incoming.Placeholder) : -1;
-        double dx = x - _incomingX;
-        _incomingX = x;
-        if (placeholder >= 0 && dx == 0) return placeholder;
-        // The dragged tab as wide as its placeholder here, held where the pointer grabbed it.
-        double width = placeholder >= 0 && tabs[placeholder].ActualWidth > 0 ? tabs[placeholder].ActualWidth : s_tabGrab.Width;
-        double left = x - s_tabGrab.Grab * width / Math.Max(1, s_tabGrab.Width), right = left + width;
-        bool leftward = placeholder >= 0 && dx < 0;
-        int index = 0;
-        for (int i = 0; i < tabs.Count; i++)
-        {
-            if (i == placeholder) continue;
-            // Where layout put the tab, not where its slide has got to.
-            double start = ((UIElement)VisualTreeHelper.GetParent(tabs[i])).TransformToVisual(Tabs).TransformPoint(default).X + tabs[i].ActualOffset.X;
-            if (leftward ? left > start + tabs[i].ActualWidth * 0.75 : right > start + tabs[i].ActualWidth * 0.25) index++;
-        }
-        return placeholder < 0 ? index : leftward ? Math.Min(placeholder, index) : Math.Max(placeholder, index);
-    }
-
     /// <summary>Closed files, newest last, for Ctrl+Shift+T.</summary>
     private static readonly List<string> s_closedPaths = new();
 
@@ -475,41 +336,6 @@ public sealed partial class MainWindow : Window
             _ = OpenFileAsync(path);
             return;
         }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CursorPoint
-    {
-        public int X, Y;
-    }
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetCursorPos(out CursorPoint point);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ScreenToClient(IntPtr window, ref CursorPoint point);
-
-    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _incomingTracker;
-
-    /// <summary>
-    /// Moves the dragged tab's placeholder with the pointer, every frame. Drag events don't fire while the pointer is
-    /// over a tab, so they can't drive it.
-    /// </summary>
-    private void TrackIncomingTab()
-    {
-        if (_incoming is null || Tabs.Visibility != Visibility.Visible || PointerIn(Tabs) is not { } p) return;
-        if (p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
-    }
-
-    /// <summary>The pointer's position on <paramref name="element"/>, read from Windows, so it works during a drag too.</summary>
-    private Windows.Foundation.Point? PointerIn(UIElement element)
-    {
-        if (Root.XamlRoot is not { } root || !GetCursorPos(out var cursor)) return null;
-        ScreenToClient(WinRT.Interop.WindowNative.GetWindowHandle(this), ref cursor);
-        double scale = root.RasterizationScale;
-        return Root.TransformToVisual(element).TransformPoint(new Windows.Foundation.Point(cursor.X / scale, cursor.Y / scale));
     }
 
     /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
@@ -606,8 +432,12 @@ public sealed partial class MainWindow : Window
         string data = FormattableString.Invariant($"M 0,{b} H {w}");
         if (Tabs.SelectedItem is TabViewItem tab && FindByName(tab, "TabContainer") is FrameworkElement box && box.ActualWidth > 0)
         {
-            var r = box.TransformToVisual(Tabs).TransformBounds(new Windows.Foundation.Rect(0, 0, box.ActualWidth, box.ActualHeight));
-            double x0 = r.Left + 0.5, x1 = r.Right - 0.5, t = r.Top + 0.5, flare = 8, top = 8;
+            // From where layout put the tab, plus how far it's dragged: a drag's shift doesn't show up reliably in
+            // TransformToVisual, during the drag or after it.
+            var inTab = box.TransformToVisual(tab).TransformBounds(new Windows.Foundation.Rect(0, 0, box.ActualWidth, box.ActualHeight));
+            var slot = ((UIElement)VisualTreeHelper.GetParent(tab)).TransformToVisual(Tabs).TransformPoint(default);
+            double left = slot.X + tab.ActualOffset.X + inTab.Left + DraggedTabOffset(tab);
+            double x0 = left + 0.5, x1 = left + inTab.Width - 0.5, t = slot.Y + tab.ActualOffset.Y + inTab.Top + 0.5, flare = 8, top = 8;
             data = FormattableString.Invariant($"M 0,{b} H {x0 - flare} A {flare},{flare} 0 0 0 {x0},{b - flare} V {t + top} A {top},{top} 0 0 1 {x0 + top},{t} ")
                 + FormattableString.Invariant($"H {x1 - top} A {top},{top} 0 0 1 {x1},{t + top} V {b - flare} A {flare},{flare} 0 0 0 {x1 + flare},{b} H {w}");
         }
@@ -1218,16 +1048,6 @@ public sealed partial class MainWindow : Window
 
     private void Root_DragOver(object sender, DragEventArgs e)
     {
-        if (IsTabFromOtherWindow(e))
-        {
-            e.AcceptedOperation = DataPackageOperation.Move;
-            e.DragUIOverride.Caption = "Move tab here";
-            // Over the tab strip the placeholder follows the pointer; over the page it stays put, at the end at first.
-            var p = e.GetPosition(Tabs);
-            if (Tabs.Visibility == Visibility.Visible && p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
-            else if (_incoming is null) ShowIncomingTab(Tabs.TabItems.Count);
-            return;
-        }
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
@@ -1236,12 +1056,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Root_DragLeave(object sender, DragEventArgs e)
-    {
-        ShowDropHighlight(false);
-        var p = e.GetPosition(Root);
-        if (p.X < 0 || p.Y < 0 || p.X >= Root.ActualWidth || p.Y >= Root.ActualHeight) TakeIncomingTab(null);
-    }
+    private void Root_DragLeave(object sender, DragEventArgs e) => ShowDropHighlight(false);
 
     /// <summary>Lights up the start page's drop zone while files are dragged over the window.</summary>
     private void ShowDropHighlight(bool on)
@@ -1254,12 +1069,6 @@ public sealed partial class MainWindow : Window
     private async void Root_Drop(object sender, DragEventArgs e)
     {
         ShowDropHighlight(false);
-        if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
-        {
-            drag.Window.MoveTab(drag.Tab, this); // where the placeholder is
-            EndTabDrag();
-            return;
-        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await e.DataView.GetStorageItemsAsync();
         foreach (var file in items.OfType<StorageFile>())
