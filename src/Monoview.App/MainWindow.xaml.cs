@@ -44,7 +44,12 @@ public sealed partial class MainWindow : Window
             DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
             TabOutline.Visibility = Tabs.Visibility;
         });
-        Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();
+        Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();        // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move tabs
+        // slowly while the outline jumps; SlideTabs gives them a quick slide instead.
+        Tabs.Loaded += (_, _) =>
+        {
+            if (FindByName(Tabs, "TabListView") is ListViewBase list) list.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
+        };
         // At least as tall as the window, so the first-run page can center in it.
         StartPage.SizeChanged += (_, e) => StartArea.MinHeight = e.NewSize.Height;
 
@@ -228,8 +233,7 @@ public sealed partial class MainWindow : Window
         tab.DragLeave += (_, _) =>
         {
             if (_hoverTab == tab) _hoverSwitch.Stop();
-        };
-        if (view is not null)
+        };        if (view is not null)
         {
             view.Visibility = Visibility.Collapsed;
             DocumentHost.Children.Add(view);
@@ -362,11 +366,19 @@ public sealed partial class MainWindow : Window
                 IsClosable = false, IsHitTestVisible = false, Opacity = 0.45,
             };
             _incoming = incoming = (placeholder, view);
+            if (_incomingTracker is null)
+            {
+                _incomingTracker = DispatcherQueue.CreateTimer();
+                _incomingTracker.Interval = TimeSpan.FromMilliseconds(16);
+                _incomingTracker.Tick += (_, _) => TrackIncomingTab();
+            }
+            _incomingTracker.Start();
         }
         int at = Tabs.TabItems.IndexOf(incoming.Placeholder);
         if (at == index) return;
         if (at >= 0) Tabs.TabItems.RemoveAt(at);
         Tabs.TabItems.Insert(Math.Min(index, Tabs.TabItems.Count), incoming.Placeholder);
+        SlideTabs();
         Tabs.Visibility = Visibility.Visible;
     }
 
@@ -378,6 +390,7 @@ public sealed partial class MainWindow : Window
     {
         if (_incoming is not { } incoming) return null;
         _incoming = null;
+        _incomingTracker?.Stop();
         int index = Tabs.TabItems.IndexOf(incoming.Placeholder);
         Tabs.TabItems.Remove(incoming.Placeholder);
         DocumentHost.Children.Remove(incoming.View);
@@ -402,17 +415,19 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Insert before the first tab whose middle is right of <paramref name="x"/>; at the end otherwise.
-    /// Counts the tabs without the placeholder for a dragged tab.
+    /// Where a tab dropped at <paramref name="x"/> lands, counting the tabs without the dragged tab's placeholder. Like
+    /// pages in the sidebar, the placeholder passes a tab once the pointer is a quarter of the way into it.
     /// </summary>
     private int TabIndexAt(double x)
     {
+        var tabs = Tabs.TabItems.OfType<TabViewItem>().ToList();
+        int placeholder = _incoming is { } incoming ? tabs.IndexOf(incoming.Placeholder) : -1;
         int index = 0;
-        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
+        for (int i = 0; i < tabs.Count; i++)
         {
-            if (ReferenceEquals(tab, _incoming?.Placeholder)) continue;
-            if (x < tab.TransformToVisual(Tabs).TransformPoint(default).X + tab.ActualWidth / 2) return index;
-            index++;
+            if (i == placeholder) continue;
+            double share = placeholder >= 0 && i < placeholder ? 0.75 : 0.25;
+            if (x > tabs[i].TransformToVisual(Tabs).TransformPoint(default).X + tabs[i].ActualWidth * share) index++;
         }
         return index;
     }
@@ -450,6 +465,25 @@ public sealed partial class MainWindow : Window
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetCursorPos(out CursorPoint point);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ScreenToClient(IntPtr window, ref CursorPoint point);
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _incomingTracker;
+
+    /// <summary>
+    /// Moves the dragged tab's placeholder with the pointer, every frame. Drag events don't fire while the pointer is
+    /// over a tab, so they can't drive it.
+    /// </summary>
+    private void TrackIncomingTab()
+    {
+        if (_incoming is null || Tabs.Visibility != Visibility.Visible || Root.XamlRoot is not { } root || !GetCursorPos(out var cursor)) return;
+        ScreenToClient(WinRT.Interop.WindowNative.GetWindowHandle(this), ref cursor);
+        double scale = root.RasterizationScale;
+        var p = Root.TransformToVisual(Tabs).TransformPoint(new Windows.Foundation.Point(cursor.X / scale, cursor.Y / scale));
+        if (p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
+    }
 
     /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
     private async Task<PdfDocument?> AskPasswordAndOpenAsync(string path)
@@ -507,6 +541,31 @@ public sealed partial class MainWindow : Window
     {
         if (!_benchmark && AppSettings.Current.RememberLastPage)
             ReadingPositions.Set(view.Document.Path, view.Viewer.CurrentPage);
+    }
+
+    /// <summary>
+    /// Tabs slide to a new place in 150 ms, like pages in the sidebar. The active tab moves at once, so the outline
+    /// drawn around it never lags behind.
+    /// </summary>
+    private void SlideTabs()
+    {
+        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(tab);
+            if (ReferenceEquals(tab, Tabs.SelectedItem))
+            {
+                visual.ImplicitAnimations = null;
+                continue;
+            }
+            if (visual.ImplicitAnimations is not null || tab.ActualWidth == 0) continue; // not laid out yet: it would slide in from the left edge
+            var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
+            slide.Target = "Offset";
+            slide.InsertExpressionKeyFrame(1f, "this.FinalValue");
+            slide.Duration = TimeSpan.FromMilliseconds(150);
+            var animations = visual.Compositor.CreateImplicitAnimationCollection();
+            animations["Offset"] = slide;
+            visual.ImplicitAnimations = animations;
+        }
     }
 
     private string? _tabOutlineData;
@@ -1003,7 +1062,11 @@ public sealed partial class MainWindow : Window
             OnCurrentDocumentChanged();
     }
 
-    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCurrentDocumentChanged();
+    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        OnCurrentDocumentChanged();
+        SlideTabs();
+    }
 
     private void OnCurrentDocumentChanged()
     {
