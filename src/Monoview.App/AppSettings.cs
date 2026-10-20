@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Win32;
 using System.Text.Json.Serialization;
 
 namespace Monoview.App;
@@ -45,6 +46,20 @@ public sealed class AppSettings
 
     /// <summary>Reopen each file at the page where it was closed.</summary>
     public bool RememberLastPage { get; set; } = true;
+
+    /// <summary>Check GitHub for a newer release at launch; null until the user sets it in Settings.</summary>
+    public bool? CheckForUpdates { get; set; }
+
+    public DateTime LastUpdateCheck { get; set; }
+
+    /// <summary>
+    /// The Settings choice if made, else the MSI's checkbox: HKCU for a "just me" install, HKLM for an
+    /// "everyone" install. Else on, as in the zip build.
+    /// </summary>
+    [JsonIgnore]
+    public bool UpdateChecksOn => CheckForUpdates
+        ?? (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Monoview\Installer", "CheckForUpdates", null)
+            ?? Registry.GetValue(@"HKEY_LOCAL_MACHINE\Software\Monoview\Installer", "CheckForUpdates", null)) is not 0;
 
     /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
     public double SidebarWidth { get; set; } = 220;

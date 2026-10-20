@@ -1628,6 +1628,7 @@ public sealed partial class MainWindow : Window
     private void ShowError(string title, string message)
     {
         _infoTimer?.Stop();
+        ErrorBar.ActionButton = null;
         ErrorBar.Severity = InfoBarSeverity.Error;
         ErrorBar.Title = title;
         ErrorBar.Message = message;
@@ -1639,6 +1640,7 @@ public sealed partial class MainWindow : Window
     /// <summary>A short status message in the info bar; it hides itself after a few seconds unless <paramref name="sticky"/>.</summary>
     private void ShowInfo(string message, bool sticky = false)
     {
+        ErrorBar.ActionButton = null;
         ErrorBar.Severity = InfoBarSeverity.Informational;
         ErrorBar.Title = message;
         ErrorBar.Message = "";
@@ -1646,6 +1648,15 @@ public sealed partial class MainWindow : Window
         _infoTimer ??= CreateInfoTimer();
         _infoTimer.Stop();
         if (!sticky) _infoTimer.Start();
+    }
+
+    public async Task CheckForUpdatesAsync()
+    {
+        if (await UpdateCheck.FindNewerAsync() is not { } update) return;
+        ShowInfo($"Monoview {update.Version} is available", sticky: true);
+        var download = new Button { Content = "Download" };
+        download.Click += (_, _) => _ = Launcher.LaunchUriAsync(new Uri(update.Url));
+        ErrorBar.ActionButton = download;
     }
 
     private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateInfoTimer()
