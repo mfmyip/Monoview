@@ -73,7 +73,8 @@ jobs:
           }
           function Removed {
             Expect 'Monoview.exe after uninstall' (Test-Path "$folder\Monoview.exe") $false
-            Expect 'saved choices after uninstall' (@((Get-Item $key -ErrorAction SilentlyContinue).GetValueNames()).Count) 0
+            $left = if (Test-Path $key) { (Get-Item $key).GetValueNames().Count } else { 0 }
+            Expect 'saved choices after uninstall' $left 0
           }
 
           "== MSI with every option changed"
