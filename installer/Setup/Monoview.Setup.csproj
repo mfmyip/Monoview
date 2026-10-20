@@ -20,6 +20,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The same Default apps link the app opens. -->
+    <Compile Include="..\..\src\Monoview.App\DefaultAppsLink.cs" Link="DefaultAppsLink.cs" />
     <Resource Include="..\..\src\Monoview.App\Assets\Package\Square44x44Logo.targetsize-256_altform-unplated.png" Link="Logo.png" />
   </ItemGroup>
 

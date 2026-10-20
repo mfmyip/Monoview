@@ -109,6 +109,11 @@ internal sealed partial class SetupWindow : Window
                 ShowPage(Page.Done, "Monoview is ready", "Find it in the Start menu, or open a PDF with it.");
                 Message.Text = "";
                 SetButtons(primary: "Open Monoview", secondary: "Close");
+                if (MakeDefault.IsEnabled && MakeDefault.IsChecked == true)
+                {
+                    Message.Text = "Windows Settings is open on Monoview's page. Choose Set default there to finish.";
+                    Open(DefaultAppsLink.ForRegisteredApp(machine: Everyone.IsChecked == true));
+                }
                 break;
         }
     }
@@ -279,6 +284,7 @@ internal sealed partial class SetupWindow : Window
         if (OpenWith.IsChecked == true) extras += ", and to Open with for PDF, PNG and JPG";
         extras += ".";
         if (CheckForUpdates.IsChecked == true) extras += " Checks GitHub for updates when it starts.";
+        if (OpenWith.IsChecked == true && MakeDefault.IsChecked == true) extras += " Then opens Windows Settings to make it your default PDF app.";
         SummaryExtras.Text = extras;
     }
 

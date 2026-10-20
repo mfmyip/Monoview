@@ -92,7 +92,11 @@ public partial class App : Application
         window.Activate();
         foreach (var (path, task) in opening)
             _ = window.OpenFileAsync(path, task);
-        if (!_benchmark) _ = window.CheckForUpdatesAsync();
+        if (!_benchmark)
+        {
+            window.SuggestDefaultApp();
+            _ = window.CheckForUpdatesAsync(); // a newer version, if any, takes the info bar over
+        }
         if (opening.Count == 0)
         {
             window.ShowStartPage(true);

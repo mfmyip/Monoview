@@ -74,7 +74,47 @@ internal static partial class AppRegistration
         NotifyShell();
     }
 
+    /// <summary>Whether Windows opens .pdf files with Monoview: this Store package, or the Monoview ProgID otherwise.</summary>
+    public static bool IsDefaultPdfApp() => IsPackaged
+        ? string.Equals(QueryPdfHandler(21 /* ASSOCSTR_APPID */), PackageAppId(), StringComparison.OrdinalIgnoreCase)
+        : QueryPdfHandler(20 /* ASSOCSTR_PROGID */) == ProgId;
+
+    /// <summary>
+    /// Opens Monoview's page in Settings > Default apps. An everyone install is registered in HKLM; a just-me
+    /// install or "Add to Open with" in HKCU. A zip copy with neither registers itself first, or the page has nothing to show.
+    /// </summary>
+    public static Task OpenDefaultAppsSettingsAsync()
+    {
+        string link;
+        if (IsPackaged)
+        {
+            link = DefaultAppsLink.ForPackage(PackageAppId());
+        }
+        else
+        {
+            bool user = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications")?.GetValue("Monoview") is not null;
+            bool machine = !user && RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey(@"Software\RegisteredApplications")?.GetValue("Monoview") is not null;
+            if (!user && !machine) Register();
+            link = DefaultAppsLink.ForRegisteredApp(machine);
+        }
+        return Windows.System.Launcher.LaunchUriAsync(new Uri(link)).AsTask();
+    }
+
+    // The manifest's only Application is Id="App".
+    private static string PackageAppId() => Windows.ApplicationModel.Package.Current.Id.FamilyName + "!App";
+
+    private static string? QueryPdfHandler(int what)
+    {
+        uint length = 260;
+        var buffer = new char[length];
+        return AssocQueryString(0, what, ".pdf", null, buffer, ref length) == 0 ? new string(buffer, 0, (int)length - 1) : null;
+    }
+
     private static void NotifyShell() => SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0, IntPtr.Zero, IntPtr.Zero);
+
+    [LibraryImport("shlwapi.dll", EntryPoint = "AssocQueryStringW", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int AssocQueryString(int flags, int what, string assoc, string? extra, [Out] char[] output, ref uint length);
 
     [LibraryImport("shell32.dll")]
     private static partial void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);

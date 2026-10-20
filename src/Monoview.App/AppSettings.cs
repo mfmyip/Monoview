@@ -52,6 +52,9 @@ public sealed class AppSettings
 
     public DateTime LastUpdateCheck { get; set; }
 
+    /// <summary>Set once the user has answered the offer to open Windows' default apps page.</summary>
+    public bool DefaultAppSuggested { get; set; }
+
     /// <summary>
     /// The Settings choice if made, else the MSI's checkbox: HKCU for a "just me" install, HKLM for an
     /// "everyone" install. Else on, as in the zip build.
