@@ -10,7 +10,7 @@
     </Window.SystemBackdrop>
 
     <!-- Transparent, not empty: without a background the bare areas (most of the start page) ignore file drops. -->
-    <Grid x:Name="Root" Background="Transparent" AllowDrop="True" KeyboardAcceleratorPlacementMode="Hidden" DragOver="Root_DragOver" Drop="Root_Drop">
+    <Grid x:Name="Root" Background="Transparent" AllowDrop="True" KeyboardAcceleratorPlacementMode="Hidden" DragOver="Root_DragOver" DragLeave="Root_DragLeave" Drop="Root_Drop">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -367,32 +367,136 @@
                  Visibility="{x:Bind ErrorBar.IsOpen, Mode=OneWay}" />
 
         <Grid x:Name="DocumentHost" Grid.Row="3" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <!-- The start page, also shown in a new tab. With no recent files it is the centered first-run page. -->
             <ScrollViewer x:Name="StartPage" Visibility="Collapsed">
-                <StackPanel MaxWidth="560" Margin="24,64" Spacing="16">
-                    <TextBlock Text="Monoview" Style="{StaticResource TitleLargeTextBlockStyle}" />
-                    <TextBlock Text="Open a PDF, or drop one anywhere on this window." Opacity="0.7" />
-                    <Button Style="{StaticResource AccentButtonStyle}" Click="Open_Click" Padding="16,8">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE838;" FontSize="16" />
-                            <TextBlock Text="Open PDF…" />
+                <Grid x:Name="StartArea">
+                    <StackPanel x:Name="StartContent" MaxWidth="920" Margin="24,40" Spacing="28">
+                        <StackPanel x:Name="HeroHeader" HorizontalAlignment="Center" Spacing="8">
+                            <Image Source="ms-appx:///Assets/Package/Square44x44Logo.targetsize-256_altform-unplated.png" Width="88" Height="88" />
+                            <TextBlock Text="Monoview" Style="{StaticResource TitleLargeTextBlockStyle}" HorizontalAlignment="Center" />
+                            <TextBlock Text="Read, mark up and sign PDFs and pictures." HorizontalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
-                    </Button>
-                    <Grid Margin="0,24,0,0">
-                        <TextBlock x:Name="RecentHeader" Text="Recent" Style="{StaticResource SubtitleTextBlockStyle}" />
-                        <HyperlinkButton x:Name="ClearRecentButton" Content="Clear" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                         Click="ClearRecent_Click" ToolTipService.ToolTip="Clear the recent files list" />
-                    </Grid>
-                    <ListView x:Name="RecentList" IsItemClickEnabled="True" SelectionMode="None" ItemClick="RecentList_ItemClick">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="local:RecentEntry">
-                                <StackPanel Padding="0,6">
-                                    <TextBlock Text="{x:Bind Name}" />
-                                    <TextBlock Text="{x:Bind Folder}" Opacity="0.6" Style="{StaticResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                        <StackPanel x:Name="CompactHeader" Orientation="Horizontal" Spacing="16">
+                            <Image Source="ms-appx:///Assets/Package/Square44x44Logo.targetsize-256_altform-unplated.png" Width="56" Height="56" />
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="Monoview" Style="{StaticResource TitleTextBlockStyle}" />
+                                <TextBlock Text="Read, mark up and sign PDFs and pictures." Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- The whole window takes drops; this shows it, and lights up while a file is dragged over. -->
+                        <Grid Height="184">
+                            <Rectangle x:Name="DropOutline" RadiusX="12" RadiusY="12" StrokeThickness="1.5" StrokeDashArray="4,3"
+                                       Stroke="{ThemeResource ControlStrongStrokeColorDefaultBrush}" Fill="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                            <Border x:Name="DropHighlight" Visibility="Collapsed" CornerRadius="12" BorderThickness="2"
+                                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
+                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.1" CornerRadius="10" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                                <Path Data="M10,4 H24 L32,12 V36 H10 Z M24,4 V12 H32 M21,18 V29 M16.5,24.5 L21,29 L25.5,24.5" Width="40" Height="40"
+                                      HorizontalAlignment="Center" StrokeThickness="1.5" StrokeLineJoin="Round"
+                                      Stroke="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="DropTitle" Text="Drop a PDF, PNG or JPG here" HorizontalAlignment="Center"
+                                               Style="{StaticResource BodyStrongTextBlockStyle}" FontSize="16" />
+                                    <TextBlock Text="or anywhere in this window" HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </StackPanel>
+                                <StackPanel x:Name="DropButtons" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                    <Button Style="{StaticResource AccentButtonStyle}" Click="Open_Click" Padding="16,8">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE838;" FontSize="16" />
+                                            <TextBlock Text="Open file…" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Text="Ctrl+O" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel x:Name="RecentSection" Spacing="8">
+                            <Grid>
+                                <TextBlock Text="Recent" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <HyperlinkButton Content="Clear list" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                 Click="ClearRecent_Click" ToolTipService.ToolTip="Clear the recent files list" />
+                            </Grid>
+                            <GridView x:Name="RecentList" IsItemClickEnabled="True" SelectionMode="None" ItemClick="RecentList_ItemClick"
+                                      ContainerContentChanging="RecentList_ContainerContentChanging">
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:RecentEntry">
+                                        <Grid Width="218" Height="168" CornerRadius="8" BorderThickness="1" ToolTipService.ToolTip="{x:Bind Path}"
+                                              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="108" />
+                                                <RowDefinition Height="*" />
+                                            </Grid.RowDefinitions>
+                                            <!-- The top of the first page, filled in once rendered; the icon shows until then or if it can't be. -->
+                                            <Grid Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                                <FontIcon x:Name="ThumbIcon" Glyph="&#xE8A5;" FontSize="32" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                <Image x:Name="Thumb" Width="104" Height="96" Stretch="Uniform" VerticalAlignment="Bottom" />
+                                            </Grid>
+                                            <StackPanel Grid.Row="1" Padding="12,8" Spacing="2" VerticalAlignment="Center">
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Background="{x:Bind Badge}" CornerRadius="3" Padding="4,0" VerticalAlignment="Center">
+                                                        <TextBlock Text="{x:Bind Kind}" FontSize="10" FontWeight="Bold" Foreground="Black" />
+                                                    </Border>
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                                </Grid>
+                                                <TextBlock Text="{x:Bind Folder}" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
+                        </StackPanel>
+
+                        <!-- First run only: what Monoview does, and how to make it open PDFs. -->
+                        <StackPanel x:Name="FirstRunSection" Spacing="20">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Padding="14" Spacing="6" CornerRadius="8" BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                    <FontIcon Glyph="&#xE70F;" FontSize="20" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="Mark up" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="Highlight, underline, draw shapes, add notes." TextWrapping="Wrap"
+                                               Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Padding="14" Spacing="6" CornerRadius="8" BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                    <FontIcon Glyph="&#xEDFB;" FontSize="20" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="Sign" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="Save a signature once, place it anywhere." TextWrapping="Wrap"
+                                               Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Padding="14" Spacing="6" CornerRadius="8" BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                    <FontIcon Glyph="&#xE7C3;" FontSize="20" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="Edit pages" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="Rotate, delete, insert and extract pages." TextWrapping="Wrap"
+                                               Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel x:Name="OpenWithHint" Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="Want PDFs to open here?" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <HyperlinkButton Content="Add Monoview to “Open with”" Click="Register_Click" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Ctrl+O  Open     Ctrl+T  New tab     Ctrl+Shift+T  Reopen closed tab     F1  All shortcuts" />
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
         </Grid>
     </Grid>

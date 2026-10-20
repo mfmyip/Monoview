@@ -20,6 +20,7 @@ internal static class HelpDialogs
             ("Ctrl+W", "Close tab"),
             ("Ctrl+Shift+W", "Close all tabs"),
             ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab; Ctrl+PgDn / Ctrl+PgUp too"),
+            ("Ctrl+T", "New tab with the start page"),
             ("Ctrl+Shift+T", "Reopen the last closed tab"),
             ("Ctrl+N", "New window"),
             ("Drag a tab", "Reorder; drop on another window to move it there, or outside to give it its own window"),

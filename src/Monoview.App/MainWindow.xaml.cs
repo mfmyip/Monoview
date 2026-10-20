@@ -16,7 +16,7 @@ using Windows.UI.Core;
 
 namespace Monoview.App;
 
-public sealed record RecentEntry(string Path, string Name, string Folder);
+public sealed record RecentEntry(string Path, string Name, string Folder, string Kind, Brush Badge);
 
 public sealed partial class MainWindow : Window
 {
@@ -45,6 +45,8 @@ public sealed partial class MainWindow : Window
             TabOutline.Visibility = Tabs.Visibility;
         });
         Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();
+        // At least as tall as the window, so the first-run page can center in it.
+        StartPage.SizeChanged += (_, e) => StartArea.MinHeight = e.NewSize.Height;
 
         // Ctrl+= and Ctrl+- on the main keyboard (no named VirtualKey for these).
         AddAccelerator((VirtualKey)187, VirtualKeyModifiers.Control, Accel_ZoomIn);
@@ -61,6 +63,7 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.Q, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; _ = App.Current.QuitAsync(); });
         // Browser-style tab and window keys.
         AddAccelerator(VirtualKey.N, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; OpenNewWindow(); });
+        AddAccelerator(VirtualKey.T, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; AddTab(null); });
         AddAccelerator(VirtualKey.T, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; ReopenClosedTab(); });
         AddAccelerator(VirtualKey.PageDown, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CycleTab(+1); });
         AddAccelerator(VirtualKey.PageUp, VirtualKeyModifiers.Control, (sender, e) => { e.Handled = true; CycleTab(-1); });
@@ -176,7 +179,10 @@ public sealed partial class MainWindow : Window
         else if (AppSettings.Current.RememberLastPage && ReadingPositions.Get(path) is int lastPage and > 0 && lastPage < doc.PageCount)
             view.Viewer.InitialState = new ViewState(lastPage, 1, view.Viewer.FitMode, 0, false);
 
-        AddTab(view);
+        // A document opened from a home tab takes that tab's place, like a browser's new tab page.
+        var home = Tabs.SelectedItem is TabViewItem { Tag: null } selected ? selected : null;
+        AddTab(view, home is null ? -1 : Tabs.TabItems.IndexOf(home));
+        if (home is not null) Tabs.TabItems.Remove(home);
         StartupTrace.Mark("tab_added");
 
         if (!_benchmark)
@@ -184,12 +190,16 @@ public sealed partial class MainWindow : Window
         ErrorBar.IsOpen = false;
     }
 
-    /// <summary>Adds a tab for <paramref name="view"/> at <paramref name="index"/> (-1: the end) and selects it.</summary>
-    private TabViewItem AddTab(DocumentView view, int index = -1)
+    /// <summary>
+    /// Adds a tab for <paramref name="view"/> at <paramref name="index"/> (-1: the end) and selects it.
+    /// With no view it is a home tab, which shows the start page.
+    /// </summary>
+    private TabViewItem AddTab(DocumentView? view, int index = -1)
     {
-        var tab = new TabViewItem { Tag = view, IconSource = new SymbolIconSource { Symbol = Symbol.Document } };
+        var tab = new TabViewItem { Tag = view, IconSource = new SymbolIconSource { Symbol = view is null ? Symbol.Home : Symbol.Document } };
+        if (view is null) tab.Header = "Home";
         UpdateTabHeader(tab);
-        tab.ContextFlyout = BuildTabMenu(tab);
+        if (view is not null) tab.ContextFlyout = BuildTabMenu(tab);
         // Middle-click closes, like a browser.
         tab.PointerPressed += (_, e) =>
         {
@@ -209,8 +219,11 @@ public sealed partial class MainWindow : Window
         {
             if (_hoverTab == tab) _hoverSwitch.Stop();
         };
-        view.Visibility = Visibility.Collapsed;
-        DocumentHost.Children.Add(view);
+        if (view is not null)
+        {
+            view.Visibility = Visibility.Collapsed;
+            DocumentHost.Children.Add(view);
+        }
         // A collapsed TabView doesn't apply selection, so show it before adding the first tab.
         Tabs.Visibility = Visibility.Visible;
         if (index < 0 || index > Tabs.TabItems.Count) Tabs.TabItems.Add(tab);
@@ -282,6 +295,12 @@ public sealed partial class MainWindow : Window
 
     private void Tabs_TabDragStarting(TabView sender, TabViewTabDragStartingEventArgs args)
     {
+        // A home tab has no document to move to another window.
+        if (args.Tab.Tag is null)
+        {
+            args.Cancel = true;
+            return;
+        }
         s_tabDrag = (this, args.Tab);
         args.Data.SetData(TabDragFormat, "tab");
         args.Data.RequestedOperation = DataPackageOperation.Move;
@@ -920,7 +939,7 @@ public sealed partial class MainWindow : Window
         UpdateToolbar();
     }
 
-    private void Tabs_AddTabButtonClick(TabView sender, object args) => _ = PickAndOpenAsync();
+    private void Tabs_AddTabButtonClick(TabView sender, object args) => AddTab(null);
     private void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args) => _ = CloseTabAsync(args.Tab);
 
     private void Open_Click(object sender, RoutedEventArgs e) => _ = PickAndOpenAsync();
@@ -967,13 +986,67 @@ public sealed partial class MainWindow : Window
             _ = OpenFileAsync(entry.Path);
     }
 
+    private static readonly Brush PdfBadge = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xFF, 0x9C, 0x8A));
+    private static readonly Brush PictureBadge = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x9E, 0xD8, 0xA0));
+
+    /// <summary>Recent files as cards; with none, the centered first-run page instead.</summary>
     private void RefreshStartPage()
     {
         var entries = RecentFiles.Items
-            .Select(p => new RecentEntry(p, Path.GetFileName(p), Path.GetDirectoryName(p) ?? ""))
+            .Select(p => DocumentFiles.IsImage(p)
+                ? new RecentEntry(p, Path.GetFileName(p), Path.GetDirectoryName(p) ?? "",
+                    Path.GetExtension(p).TrimStart('.').ToUpperInvariant().Replace("JPEG", "JPG"), PictureBadge)
+                : new RecentEntry(p, Path.GetFileName(p), Path.GetDirectoryName(p) ?? "", "PDF", PdfBadge))
             .ToList();
         RecentList.ItemsSource = entries;
-        RecentHeader.Visibility = ClearRecentButton.Visibility = entries.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        bool firstRun = entries.Count == 0;
+        HeroHeader.Visibility = FirstRunSection.Visibility = firstRun ? Visibility.Visible : Visibility.Collapsed;
+        CompactHeader.Visibility = RecentSection.Visibility = firstRun ? Visibility.Collapsed : Visibility.Visible;
+        StartContent.VerticalAlignment = firstRun ? VerticalAlignment.Center : VerticalAlignment.Top;
+        OpenWithHint.Visibility = AppRegistration.IsRegistered() || AppRegistration.IsPackaged ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>First-page thumbnails by path and file time, so the start page doesn't render them again.</summary>
+    private readonly Dictionary<(string, DateTime), ImageSource> _thumbnails = new();
+
+    private void RecentList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.Item is not RecentEntry entry
+            || args.ItemContainer.ContentTemplateRoot is not FrameworkElement card || card.FindName("Thumb") is not Image image) return;
+        image.Tag = entry.Path;
+        image.Source = null;
+        ((UIElement)card.FindName("ThumbIcon")).Visibility = Visibility.Visible;
+        _ = LoadThumbnailAsync(entry.Path, card, image);
+    }
+
+    /// <summary>Shows the top of the file's first page in the card's <paramref name="image"/>; leaves the icon when the file can't be read.</summary>
+    private async Task LoadThumbnailAsync(string path, FrameworkElement card, Image image)
+    {
+        var key = (path, File.GetLastWriteTimeUtc(path));
+        if (!_thumbnails.TryGetValue(key, out var source))
+        {
+            PdfDocument doc;
+            // Not inside the list's layout callback: opening a picture there crashes XAML.
+            await Task.Yield();
+            try { doc = await DocumentFiles.OpenAsync(path); }
+            catch (PdfException) { return; }
+            try
+            {
+                double scale = image.XamlRoot?.RasterizationScale ?? 1;
+                var page = doc.PageSizes[0];
+                int width = (int)Math.Ceiling(image.Width * scale), height = (int)Math.Ceiling(width * page.Height / page.Width);
+                var region = new PixelRect(0, 0, width, Math.Min(height, (int)Math.Ceiling(image.Height * scale)));
+                source = _thumbnails[key] = Bitmaps.ToBitmap(await doc.RenderAsync(0, width, height, region, WorkPriority.Low));
+            }
+            finally
+            {
+                await doc.CloseAsync();
+            }
+        }
+        // The card may show another file by now: the list reuses cards.
+        if (!Equals(image.Tag, path)) return;
+        image.Source = source;
+        ((UIElement)card.FindName("ThumbIcon")).Visibility = Visibility.Collapsed;
     }
 
     private void Root_DragOver(object sender, DragEventArgs e)
@@ -988,11 +1061,23 @@ public sealed partial class MainWindow : Window
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
             e.DragUIOverride.Caption = "Open";
+            ShowDropHighlight(true);
         }
+    }
+
+    private void Root_DragLeave(object sender, DragEventArgs e) => ShowDropHighlight(false);
+
+    /// <summary>Lights up the start page's drop zone while files are dragged over the window.</summary>
+    private void ShowDropHighlight(bool on)
+    {
+        DropHighlight.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        DropOutline.Visibility = DropButtons.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        DropTitle.Text = on ? "Release to open" : "Drop a PDF, PNG or JPG here";
     }
 
     private async void Root_Drop(object sender, DragEventArgs e)
     {
+        ShowDropHighlight(false);
         if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
         {
             drag.Window.MoveTab(drag.Tab, this);
@@ -1780,6 +1865,7 @@ public sealed partial class MainWindow : Window
                 }
                 await Task.Delay(1200);
             }
+            if (args.Contains("--home-tab")) { AddTab(null); await Task.Delay(1500); }
             if (Arg("--screenshot") is { } shot)
             {
                 await Task.Delay(500);
