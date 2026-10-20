@@ -92,6 +92,7 @@ public partial class App : Application
         window.Activate();
         foreach (var (path, task) in opening)
             _ = window.OpenFileAsync(path, task);
+        if (!_benchmark) _ = window.CheckForUpdatesAsync();
         if (opening.Count == 0)
         {
             window.ShowStartPage(true);
