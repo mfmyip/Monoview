@@ -1,4 +1,6 @@
 ﻿using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -11,7 +13,9 @@ namespace Monoview.App;
 /// </summary>
 public static partial class Program
 {
-    private const string InstanceKey = "Monoview.Main";
+    // One instance per install folder, so builds from different folders (e.g. git worktrees) run side by side.
+    private static readonly string InstanceKey = "Monoview.Main." + Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(AppContext.BaseDirectory.ToUpperInvariant())))[..16];
 
     [STAThread]
     private static int Main(string[] args)
