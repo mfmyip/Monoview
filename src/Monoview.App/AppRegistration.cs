@@ -66,7 +66,7 @@ internal static partial class AppRegistration
     {
         Registry.CurrentUser.DeleteSubKeyTree($@"{Classes}\{ProgId}", throwOnMissingSubKey: false);
         Registry.CurrentUser.DeleteSubKeyTree($@"{Classes}\Applications\{Path.GetFileName(Environment.ProcessPath!)}", throwOnMissingSubKey: false);
-        Registry.CurrentUser.DeleteSubKeyTree(@"Software\Monoview", throwOnMissingSubKey: false);
+        Registry.CurrentUser.DeleteSubKeyTree(Capabilities, throwOnMissingSubKey: false);
         using (var withProgIds = Registry.CurrentUser.OpenSubKey($@"{Classes}\.pdf\OpenWithProgids", writable: true))
             withProgIds?.DeleteValue(ProgId, throwOnMissingValue: false);
         using (var registered = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications", writable: true))
