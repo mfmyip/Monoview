@@ -52,10 +52,14 @@ public sealed class AppSettings
 
     public DateTime LastUpdateCheck { get; set; }
 
-    /// <summary>The Settings choice if made, else the MSI's checkbox, else on, as in the zip build.</summary>
+    /// <summary>
+    /// The Settings choice if made, else the MSI's checkbox: HKCU for a "just me" install, HKLM for an
+    /// "everyone" install. Else on, as in the zip build.
+    /// </summary>
     [JsonIgnore]
     public bool UpdateChecksOn => CheckForUpdates
-        ?? Registry.GetValue(@"HKEY_CURRENT_USER\Software\Monoview\Installer", "CheckForUpdates", 1) is not 0;
+        ?? (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Monoview\Installer", "CheckForUpdates", null)
+            ?? Registry.GetValue(@"HKEY_LOCAL_MACHINE\Software\Monoview\Installer", "CheckForUpdates", null)) is not 0;
 
     /// <summary>Sidebar width in DIPs, set by dragging its edge.</summary>
     public double SidebarWidth { get; set; } = 220;
