@@ -44,11 +44,17 @@ public sealed partial class MainWindow : Window
             DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
             TabOutline.Visibility = Tabs.Visibility;
         });
-        Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();        // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move tabs
-        // slowly while the outline jumps; SlideTabs gives them a quick slide instead.
-        Tabs.Loaded += (_, _) =>
+        Tabs.LayoutUpdated += (_, _) =>
         {
-            if (FindByName(Tabs, "TabListView") is ListViewBase list) list.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
+            UpdateTabOutline();
+            // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move
+            // tabs slowly while the outline jumps; SlideTabs gives them a quick slide instead. The strip starts hidden,
+            // so its list only exists after its first layout.
+            if (!_tabTransitionsCleared && FindByName(Tabs, "TabListView") is ListViewBase list)
+            {
+                list.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
+                _tabTransitionsCleared = true;
+            }
         };
         // At least as tall as the window, so the first-run page can center in it.
         StartPage.SizeChanged += (_, e) => StartArea.MinHeight = e.NewSize.Height;
@@ -309,6 +315,9 @@ public sealed partial class MainWindow : Window
     private static (MainWindow Window, TabViewItem Tab)? s_tabDrag;
     private const string TabDragFormat = "Monoview.Tab";
 
+    /// <summary>Where the pointer grabbed the dragged tab, and its width, so a window can tell where the tab's edges are.</summary>
+    private static (double Grab, double Width) s_tabGrab;
+
     private bool IsTabFromOtherWindow(DragEventArgs e) =>
         s_tabDrag is { } drag && drag.Window != this && e.DataView.Contains(TabDragFormat);
 
@@ -321,6 +330,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         s_tabDrag = (this, args.Tab);
+        s_tabGrab = (PointerIn(args.Tab)?.X ?? args.Tab.ActualWidth / 2, args.Tab.ActualWidth);
         args.Data.SetData(TabDragFormat, "tab");
         args.Data.RequestedOperation = DataPackageOperation.Move;
         // The other windows place the tab themselves, with a placeholder. A tab strip's own drop handling opens a
@@ -414,22 +424,33 @@ public sealed partial class MainWindow : Window
         else MoveToNewWindow(args.Tab, at);
     }
 
+    private double _incomingX;
+
     /// <summary>
-    /// Where a tab dropped at <paramref name="x"/> lands, counting the tabs without the dragged tab's placeholder. Like
-    /// pages in the sidebar, the placeholder passes a tab once the pointer is a quarter of the way into it.
+    /// Where a tab dragged with the pointer at <paramref name="x"/> lands, counting the tabs without its placeholder.
+    /// A tab gets out of the way once the dragged tab's leading edge is a quarter of the way into it. The placeholder
+    /// only moves the way the pointer moves, so it can't flip back and forth over a tab.
     /// </summary>
     private int TabIndexAt(double x)
     {
         var tabs = Tabs.TabItems.OfType<TabViewItem>().ToList();
         int placeholder = _incoming is { } incoming ? tabs.IndexOf(incoming.Placeholder) : -1;
+        double dx = x - _incomingX;
+        _incomingX = x;
+        if (placeholder >= 0 && dx == 0) return placeholder;
+        // The dragged tab as wide as its placeholder here, held where the pointer grabbed it.
+        double width = placeholder >= 0 && tabs[placeholder].ActualWidth > 0 ? tabs[placeholder].ActualWidth : s_tabGrab.Width;
+        double left = x - s_tabGrab.Grab * width / Math.Max(1, s_tabGrab.Width), right = left + width;
+        bool leftward = placeholder >= 0 && dx < 0;
         int index = 0;
         for (int i = 0; i < tabs.Count; i++)
         {
             if (i == placeholder) continue;
-            double share = placeholder >= 0 && i < placeholder ? 0.75 : 0.25;
-            if (x > tabs[i].TransformToVisual(Tabs).TransformPoint(default).X + tabs[i].ActualWidth * share) index++;
+            // Where layout put the tab, not where its slide has got to.
+            double start = ((UIElement)VisualTreeHelper.GetParent(tabs[i])).TransformToVisual(Tabs).TransformPoint(default).X + tabs[i].ActualOffset.X;
+            if (leftward ? left > start + tabs[i].ActualWidth * 0.75 : right > start + tabs[i].ActualWidth * 0.25) index++;
         }
-        return index;
+        return placeholder < 0 ? index : leftward ? Math.Min(placeholder, index) : Math.Max(placeholder, index);
     }
 
     /// <summary>Closed files, newest last, for Ctrl+Shift+T.</summary>
@@ -478,11 +499,17 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void TrackIncomingTab()
     {
-        if (_incoming is null || Tabs.Visibility != Visibility.Visible || Root.XamlRoot is not { } root || !GetCursorPos(out var cursor)) return;
+        if (_incoming is null || Tabs.Visibility != Visibility.Visible || PointerIn(Tabs) is not { } p) return;
+        if (p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
+    }
+
+    /// <summary>The pointer's position on <paramref name="element"/>, read from Windows, so it works during a drag too.</summary>
+    private Windows.Foundation.Point? PointerIn(UIElement element)
+    {
+        if (Root.XamlRoot is not { } root || !GetCursorPos(out var cursor)) return null;
         ScreenToClient(WinRT.Interop.WindowNative.GetWindowHandle(this), ref cursor);
         double scale = root.RasterizationScale;
-        var p = Root.TransformToVisual(Tabs).TransformPoint(new Windows.Foundation.Point(cursor.X / scale, cursor.Y / scale));
-        if (p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
+        return Root.TransformToVisual(element).TransformPoint(new Windows.Foundation.Point(cursor.X / scale, cursor.Y / scale));
     }
 
     /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
@@ -544,7 +571,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Tabs slide to a new place in 150 ms, like pages in the sidebar. The active tab moves at once, so the outline
+    /// Tabs slide to a new place in 100 ms. The active tab moves at once, so the outline
     /// drawn around it never lags behind.
     /// </summary>
     private void SlideTabs()
@@ -561,7 +588,7 @@ public sealed partial class MainWindow : Window
             var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
             slide.Target = "Offset";
             slide.InsertExpressionKeyFrame(1f, "this.FinalValue");
-            slide.Duration = TimeSpan.FromMilliseconds(150);
+            slide.Duration = TimeSpan.FromMilliseconds(100);
             var animations = visual.Compositor.CreateImplicitAnimationCollection();
             animations["Offset"] = slide;
             visual.ImplicitAnimations = animations;
@@ -569,6 +596,7 @@ public sealed partial class MainWindow : Window
     }
 
     private string? _tabOutlineData;
+    private bool _tabTransitionsCleared;
 
     // Redrawn on every layout pass (select, reorder, resize, close), so it only rebuilds when the shape moved.
     private void UpdateTabOutline()
