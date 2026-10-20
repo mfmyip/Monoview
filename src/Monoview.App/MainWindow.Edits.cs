@@ -2,6 +2,8 @@ using Monoview.App.Viewer;
 using Monoview.Engine;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 
 namespace Monoview.App;
@@ -28,17 +30,19 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// Shows <paramref name="doc"/> in the tab in place of <paramref name="old"/>'s document, keeping zoom, rotation,
-    /// scroll and sidebar. With the same pages (undo, redo, save, reload) the view stays and redraws in place;
-    /// page operations change the pages, so the view is rebuilt.
+    /// scroll and sidebar. With the same pages (undo, redo, save, reload), or the same number of pages and a
+    /// <paramref name="carry"/> map (moved, rotated or cropped pages; see <see cref="PdfViewer.ReplaceDocument"/>),
+    /// the view stays and redraws in place. Adding or deleting pages rebuilds the view.
     /// </summary>
     private void ReplaceView(TabViewItem tab, DocumentView old, PdfDocument doc, bool closeOldDocument,
-        int? page = null, IReadOnlyList<int>? select = null)
+        int? page = null, IReadOnlyList<int>? select = null, IReadOnlyList<int>? carry = null)
     {
         var previous = old.Document;
-        if (!ReferenceEquals(previous, doc) && page is null && select is null && previous.PageSizes.SequenceEqual(doc.PageSizes))
+        if (carry is not null || (!ReferenceEquals(previous, doc) && page is null && select is null && previous.PageSizes.SequenceEqual(doc.PageSizes)))
         {
-            old.ReplaceDocument(doc);
+            old.ReplaceDocument(doc, carry, select);
             if (closeOldDocument) previous.Dispose();
+            if (page is { } shown) old.Viewer.NavigateTo(shown);
             UpdateTabHeader(tab);
             OnCurrentDocumentChanged();
             return;
@@ -68,7 +72,17 @@ public sealed partial class MainWindow
         // Pickers and prompts first, so cancelling doesn't leave an empty undo step.
         string? file = request.FilePath;
         PdfDocument? source = null;
-        if (request.Action == PageAction.InsertFromFile)
+        if (request.Action == PageAction.Copy)
+        {
+            await CopyPagesAsync(doc, pages);
+            return; // copying doesn't change this document
+        }
+        if (request.Action == PageAction.Paste && (file = await PastedFileAsync()) is null)
+        {
+            ShowError("Nothing to paste", "Copy pages first, or copy a PDF or a picture in File Explorer.");
+            return;
+        }
+        if (request.Action is PageAction.InsertFromFile or PageAction.Paste)
         {
             if (file is null && (file = await PickInsertFileAsync()) is null) return;
             if ((source = await OpenToInsertAsync(file)) is null) return;
@@ -118,7 +132,7 @@ public sealed partial class MainWindow
                 case PageAction.RotateLeft:
                 case PageAction.RotateRight:
                     await doc.RotatePagesAsync(pages, request.Action == PageAction.RotateRight ? 1 : -1);
-                    ReplaceView(tab, view, doc, closeOldDocument: false, select: pages);
+                    ReplaceView(tab, view, doc, closeOldDocument: false, select: pages, carry: Redrawn(doc.PageCount, pages));
                     break;
                 case PageAction.Delete:
                     await doc.DeletePagesAsync(pages);
@@ -126,32 +140,39 @@ public sealed partial class MainWindow
                     break;
                 case PageAction.Move:
                     await doc.MovePagesAsync(pages, request.Destination);
-                    var moved = Enumerable.Range(request.Destination, pages.Count).ToList();
-                    ReplaceView(tab, view, doc, closeOldDocument: false, page: moved[0], select: moved);
+                    var order = Enumerable.Range(0, doc.PageCount).Except(pages).ToList();
+                    int destination = Math.Clamp(request.Destination, 0, order.Count);
+                    order.InsertRange(destination, pages);
+                    var moved = Enumerable.Range(destination, pages.Count).ToList();
+                    ReplaceView(tab, view, doc, closeOldDocument: false, page: moved[0], select: moved, carry: order);
                     break;
                 case PageAction.Crop:
                     await doc.CropPageAsync(pages[0], request.Area!.Value);
-                    ReplaceView(tab, view, doc, closeOldDocument: false, page: pages[0]);
+                    ReplaceView(tab, view, doc, closeOldDocument: false, page: pages[0], carry: Redrawn(doc.PageCount, pages));
                     break;
-                case PageAction.CopyFrom:
+                case PageAction.MoveFrom:
+                    var from = request.From!;
                     int to = Math.Clamp(request.Destination, 0, doc.PageCount);
-                    int copied = await doc.InsertPagesFromAsync(request.Source!, to, pages);
-                    var pasted = Enumerable.Range(to, copied).ToList();
-                    ReplaceView(tab, view, doc, closeOldDocument: false, page: to, select: pasted);
-                    ShowInfo($"Copied {copied} page{(copied == 1 ? "" : "s")} from {Path.GetFileName(request.Source!.Path)}");
+                    int taken = await doc.InsertPagesFromAsync(from.Document, to, pages);
+                    ReplaceView(tab, view, doc, closeOldDocument: false, page: to, select: Enumerable.Range(to, taken).ToList());
+                    from.RemovePages(pages); // the other document's own undo step
+                    ShowInfo($"Moved {taken} page{(taken == 1 ? "" : "s")} from {Path.GetFileName(from.Document.Path)}");
                     break;
                 case PageAction.InsertFromFile:
+                case PageAction.Paste:
                     int at = Math.Clamp(request.Destination, 0, doc.PageCount);
                     int added = await doc.InsertPagesFromAsync(source!, at);
                     var inserted = Enumerable.Range(at, added).ToList();
                     ReplaceView(tab, view, doc, closeOldDocument: false, page: at, select: inserted);
-                    ShowInfo($"Inserted {added} page{(added == 1 ? "" : "s")} from {Path.GetFileName(file)}");
+                    ShowInfo(request.Action == PageAction.Paste ? $"Pasted {added} page{(added == 1 ? "" : "s")}"
+                        : $"Inserted {added} page{(added == 1 ? "" : "s")} from {Path.GetFileName(file)}");
                     break;
             }
         }
         catch (PdfException ex)
         {
             history.DropLast();
+            view.HideDropGap(animate: true);
             ShowError("Couldn't change the pages", ex.Message);
         }
         finally
@@ -159,6 +180,43 @@ public sealed partial class MainWindow
             source?.Dispose();
         }
     }
+
+    /// <summary>
+    /// Puts <paramref name="pages"/> on the clipboard as a PDF file, so Paste in a page list inserts them and File
+    /// Explorer can paste them as a file.
+    /// </summary>
+    private async Task CopyPagesAsync(PdfDocument doc, IReadOnlyList<int> pages)
+    {
+        try
+        {
+            string folder = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "Monoview")).FullName;
+            string path = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(doc.Path)} {PagesSuffix(pages)}.pdf");
+            await doc.ExtractPagesAsync(pages, path);
+            var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            package.SetStorageItems([await StorageFile.GetFileFromPathAsync(path)]);
+            Clipboard.SetContent(package);
+            ShowInfo($"Copied {pages.Count} page{(pages.Count == 1 ? "" : "s")}");
+        }
+        catch (Exception ex) when (ex is PdfException or IOException or UnauthorizedAccessException)
+        {
+            ShowError("Couldn't copy the pages", ex.Message);
+        }
+    }
+
+    /// <summary>The first PDF or picture on the clipboard, or null.</summary>
+    private static async Task<string?> PastedFileAsync()
+    {
+        var content = Clipboard.GetContent();
+        if (!content.Contains(StandardDataFormats.StorageItems)) return null;
+        return (await content.GetStorageItemsAsync()).OfType<StorageFile>().Select(f => f.Path).FirstOrDefault(DocumentFiles.CanOpen);
+    }
+
+    private static string PagesSuffix(IReadOnlyList<int> pages) =>
+        pages.Count == 1 ? $"page {pages[0] + 1}" : $"pages {pages[0] + 1} to {pages[^1] + 1}";
+
+    /// <summary>A carry map for <see cref="ReplaceView"/>: <paramref name="changed"/> pages redraw, the rest stay.</summary>
+    private static List<int> Redrawn(int pageCount, IReadOnlyList<int> changed) =>
+        Enumerable.Range(0, pageCount).Select(i => changed.Contains(i) ? -1 : i).ToList();
 
     /// <summary>Opens a PDF or a picture to insert its pages, asking for the password if it has one. Null when cancelled or unreadable.</summary>
     private async Task<PdfDocument?> OpenToInsertAsync(string path)
@@ -246,8 +304,7 @@ public sealed partial class MainWindow
 
     private async Task<string?> PickExtractTargetAsync(string source, IReadOnlyList<int> pages)
     {
-        string suffix = pages.Count == 1 ? $"page {pages[0] + 1}" : $"pages {pages[0] + 1} to {pages[^1] + 1}";
-        var picker = new FileSavePicker { SuggestedFileName = $"{Path.GetFileNameWithoutExtension(source)} {suffix}" };
+        var picker = new FileSavePicker { SuggestedFileName = $"{Path.GetFileNameWithoutExtension(source)} {PagesSuffix(pages)}" };
         picker.FileTypeChoices.Add("PDF document", new List<string> { ".pdf" });
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
         return (await picker.PickSaveFileAsync())?.Path;
