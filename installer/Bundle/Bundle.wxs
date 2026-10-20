@@ -1,0 +1,33 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <!--
+    Monoview-<version>-setup.exe. The setup window (installer\Setup) asks for whom and where to install and which
+    extras to add, then installs the MSI for one user or for everyone. Its choices reach the MSI through the
+    variables below; a quiet install passes only the ones given on the command line, so the MSI keeps an earlier
+    install's choices otherwise. The options take 0 or 1:
+      Monoview-<version>-setup.exe /quiet AllUsers=1 InstallFolder=D:\Apps\Monoview DesktopShortcut=1 OpenWith=0 CheckForUpdates=0
+  -->
+  <Bundle Id="Monoview.Setup" Name="Monoview" Manufacturer="Monoview" Version="$(var.Version)"
+          IconSourceFile="..\..\src\Monoview.App\Assets\Monoview.ico"
+          AboutUrl="https://github.com/mfmyip/Monoview" HelpUrl="https://github.com/mfmyip/Monoview/issues">
+    <BootstrapperApplication SourceFile="$(var.SetupDir)\Monoview.Setup.exe">
+      <Payload SourceFile="$(var.SetupDir)\Monoview.Setup.exe.config" />
+      <Payload SourceFile="$(var.SetupDir)\mbanative.dll" />
+      <Payload SourceFile="$(var.SetupDir)\WixToolset.BootstrapperApplicationApi.dll" />
+    </BootstrapperApplication>
+
+    <Variable Name="AllUsers" bal:Overridable="yes" />
+    <Variable Name="InstallFolder" bal:Overridable="yes" />
+    <Variable Name="DesktopShortcut" bal:Overridable="yes" />
+    <Variable Name="OpenWith" bal:Overridable="yes" />
+    <Variable Name="CheckForUpdates" bal:Overridable="yes" />
+
+    <Chain>
+      <MsiPackage Id="MonoviewMsi" SourceFile="$(var.MsiPath)">
+        <MsiProperty Name="APPLICATIONFOLDER" Value="[InstallFolder]" Condition="InstallFolder" />
+        <MsiProperty Name="DESKTOPSHORTCUT" Value="[DesktopShortcut]" Condition="DesktopShortcut = &quot;0&quot; OR DesktopShortcut = &quot;1&quot;" />
+        <MsiProperty Name="OPENWITH" Value="[OpenWith]" Condition="OpenWith = &quot;0&quot; OR OpenWith = &quot;1&quot;" />
+        <MsiProperty Name="CHECKFORUPDATES" Value="[CheckForUpdates]" Condition="CheckForUpdates = &quot;0&quot; OR CheckForUpdates = &quot;1&quot;" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>

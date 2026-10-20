@@ -1,4 +1,4 @@
-# On a version tag (v0.1.2), builds the release with build-release.ps1, publishes the zip and MSI as a
+# On a version tag (v0.1.2), builds the release with build-release.ps1, publishes setup.exe, the MSI and the zip as a
 # GitHub Release, and keeps the Store bundle as a workflow artifact to upload in Partner Center by hand.
 name: Release
 
@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME artifacts/*.zip artifacts/*.msi artifacts/SHA256SUMS.txt --title "Monoview $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
+        run: gh release create $env:GITHUB_REF_NAME artifacts/*-setup.exe artifacts/*.zip artifacts/*.msi artifacts/SHA256SUMS.txt --title "Monoview $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
 
       - name: Keep the Store bundle
         uses: actions/upload-artifact@v5

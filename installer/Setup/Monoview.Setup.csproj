@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The setup window inside Monoview-x.y.z-setup.exe. Burn starts it as a separate process; it drives the install
+       through WixToolset.BootstrapperApplicationApi. .NET Framework 4.6.2 ships with every supported Windows, so
+       setup needs no runtime download. -->
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Monoview.Setup</AssemblyName>
+    <RootNamespace>Monoview.Setup</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- mbanative.dll from the API package is native x86, so the window runs as x86 too. -->
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <PlatformTarget>x86</PlatformTarget>
+    <SelfContained>false</SelfContained>
+    <DebugType>embedded</DebugType>
+    <ApplicationIcon>..\..\src\Monoview.App\Assets\Monoview.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\src\Monoview.App\Assets\Package\Square44x44Logo.targetsize-256_altform-unplated.png" Link="Logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="7.0.0" />
+  </ItemGroup>
+</Project>

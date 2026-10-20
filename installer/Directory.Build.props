@@ -1,0 +1,8 @@
+<Project>
+  <!-- Every WiX 7 project and package under installer\ checks this. It accepts the WiX Toolset EULA, the Open Source
+       Maintenance Fee v1.1 terms, which Murphy accepted on 2026-10-20: a fee applies only from US$10,000 a year of
+       revenue from projects that use WiX. See https://docs.firegiant.com/wix/osmf/ -->
+  <PropertyGroup>
+    <AcceptEula>wix7</AcceptEula>
+  </PropertyGroup>
+</Project>

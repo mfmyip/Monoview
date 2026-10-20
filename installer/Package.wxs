@@ -1,11 +1,17 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <!--
-    Monoview for the current user only: no admin prompt. Installs to %LOCALAPPDATA%\Programs\Monoview, adds a
-    Start menu shortcut, and offers Monoview in "Open with" for PDF, PNG and JPG, the same registration the app's
-    own menu writes. Windows lets the user, not the app, pick the default in Settings > Default apps.
-    The UpgradeCode never changes, so a newer MSI replaces an older one.
+    Monoview with a setup wizard: Welcome, License, Just me or Everyone, Install folder, Options, Install, Finish.
+    Just me needs no admin prompt and defaults to %LOCALAPPDATA%\Programs\Monoview; Everyone asks for admin and
+    defaults to Program Files. Options: a desktop shortcut (off), checking for updates (on), and "Open with" for PDF, PNG and JPG (on), the same
+    registration the app's own menu writes. Windows lets the user, not the app, pick the default in Settings.
+
+    Silent installs keep the old behaviour: msiexec /i Monoview.msi /qn installs just for the user, in the default
+    folder, with Open with. Public properties: ALLUSERS=1 (everyone), APPLICATIONFOLDER, DESKTOPSHORTCUT=1, OPENWITH=0, CHECKFORUPDATES=0.
+    An upgrade keeps the folder and options of the install it replaces, from Software\Monoview\Installer.
+    The UpgradeCode never changes, so a newer MSI replaces an older one in the same scope.
   -->
-  <Package Name="Monoview" Manufacturer="Monoview" Version="$(var.Version)" Scope="perUser"
+  <Package Name="Monoview" Manufacturer="Monoview" Version="$(var.Version)" Scope="perUserOrMachine"
            UpgradeCode="8DAC5690-28B8-4319-BA3E-48DBD5737694">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Monoview is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -14,56 +20,220 @@
     <Property Id="ARPPRODUCTICON" Value="MonoviewIcon" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/mfmyip/Monoview" />
     <Property Id="ARPHELPLINK" Value="https://github.com/mfmyip/Monoview/issues" />
+    <Property Id="ARPNOMODIFY" Value="1" />
 
-    <StandardDirectory Id="LocalAppDataFolder">
-      <Directory Id="ProgramsFolder" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="Monoview" />
-      </Directory>
+    <!-- Options. A checkbox is ticked when its property has any value. -->
+    <Property Id="DESKTOPSHORTCUT" Secure="yes" />
+    <Property Id="OPENWITH" Value="1" Secure="yes" />
+    <Property Id="APPLICATIONFOLDER" Secure="yes" />
+    <!-- The app reads CheckForUpdates (1 or 0) from Software\Monoview\Installer, HKCU then HKLM, when settings.json has no choice. -->
+    <Property Id="CHECKFORUPDATES" Value="1" Secure="yes" />
+    <!-- Box properties are on when they hold any value, so a command-line 0 means off. -->
+    <SetProperty Id="DESKTOPSHORTCUT" Action="ClearDesktopZero" Value="{}" After="AppSearch" Sequence="both" Condition="DESKTOPSHORTCUT=&quot;0&quot;" />
+    <SetProperty Id="OPENWITH" Action="ClearOpenWithZero" Value="{}" After="AppSearch" Sequence="both" Condition="OPENWITH=&quot;0&quot;" />
+    <SetProperty Id="CHECKFORUPDATES" Action="ClearUpdatesZero" Value="{}" After="AppSearch" Sequence="both" Condition="CHECKFORUPDATES=&quot;0&quot;" />
+
+    <!-- What an earlier install chose. HKLM holds an Everyone install, HKCU a Just me install. -->
+    <Property Id="PREVUSERFOLDER">
+      <RegistrySearch Root="HKCU" Key="Software\Monoview\Installer" Name="InstallFolder" Type="raw" />
+    </Property>
+    <Property Id="PREVMACHINEFOLDER">
+      <RegistrySearch Root="HKLM" Key="Software\Monoview\Installer" Name="InstallFolder" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="SAVEDDESKTOP">
+      <RegistrySearch Root="HKCU" Key="Software\Monoview\Installer" Name="DesktopShortcut" Type="raw" />
+    </Property>
+    <Property Id="SAVEDOPENWITH">
+      <RegistrySearch Root="HKCU" Key="Software\Monoview\Installer" Name="OpenWith" Type="raw" />
+    </Property>
+    <SetProperty Id="DESKTOPSHORTCUT" Value="1" After="AppSearch" Sequence="both" Condition="SAVEDDESKTOP=&quot;on&quot;" />
+    <SetProperty Id="OPENWITH" Value="{}" After="AppSearch" Sequence="both" Condition="SAVEDOPENWITH=&quot;off&quot;" />
+    <Property Id="SAVEDUPDATES">
+      <RegistrySearch Root="HKCU" Key="Software\Monoview\Installer" Name="CheckForUpdates" Type="raw" />
+    </Property>
+    <SetProperty Id="CHECKFORUPDATES" Value="{}" After="AppSearch" Sequence="both" Condition="SAVEDUPDATES=&quot;#0&quot;" />
+    <SetDirectory Id="APPLICATIONFOLDER" Action="SetPreviousUserFolder" Value="[PREVUSERFOLDER]" Sequence="execute"
+                  Condition="PREVUSERFOLDER AND UILevel &lt; 5 AND (ALLUSERS=&quot;&quot; OR (ALLUSERS=2 AND MSIINSTALLPERUSER=1))" />
+    <SetDirectory Id="APPLICATIONFOLDER" Action="SetPreviousMachineFolder" Value="[PREVMACHINEFOLDER]" Sequence="execute"
+                  Condition="PREVMACHINEFOLDER AND UILevel &lt; 5 AND (ALLUSERS=1 OR (ALLUSERS=2 AND NOT MSIINSTALLPERUSER))" />
+
+    <!-- Just me redirects Program Files to %LOCALAPPDATA%\Programs, so one folder tree serves both scopes. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="APPLICATIONFOLDER" Name="Monoview" />
     </StandardDirectory>
 
-    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+    <ComponentGroup Id="AppFiles" Directory="APPLICATIONFOLDER">
       <Files Include="$(var.PublishDir)\**" />
+      <Component Id="InstallerState">
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="InstallFolder" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="DesktopShortcut" Type="string" Value="[DesktopState]" />
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="OpenWith" Type="string" Value="[OpenWithState]" />
+        <!-- The app reads this one too (HKCU, then HKLM) when settings.json has no choice. As a key path of its own
+             component it was never written, so it lives here with the other choices. -->
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="CheckForUpdates" Type="integer" Value="[UpdatesValue]" />
+      </Component>
     </ComponentGroup>
+    <SetProperty Id="DesktopState" Action="SetDesktopStateOn" Value="on" Before="WriteRegistryValues" Sequence="execute" Condition="DESKTOPSHORTCUT" />
+    <SetProperty Id="DesktopState" Action="SetDesktopStateOff" Value="off" Before="WriteRegistryValues" Sequence="execute" Condition="NOT DESKTOPSHORTCUT" />
+    <SetProperty Id="OpenWithState" Action="SetOpenWithStateOn" Value="on" Before="WriteRegistryValues" Sequence="execute" Condition="OPENWITH" />
+    <SetProperty Id="UpdatesValue" Action="SetUpdatesOn" Value="1" Before="WriteRegistryValues" Sequence="execute" Condition="CHECKFORUPDATES" />
+    <SetProperty Id="UpdatesValue" Action="SetUpdatesOff" Value="0" Before="WriteRegistryValues" Sequence="execute" Condition="NOT CHECKFORUPDATES" />
+    <SetProperty Id="OpenWithState" Action="SetOpenWithStateOff" Value="off" Before="WriteRegistryValues" Sequence="execute" Condition="NOT OPENWITH" />
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut">
         <Shortcut Id="StartMenu" Name="Monoview" Description="A fast, clean PDF viewer"
-                  Target="[INSTALLFOLDER]Monoview.exe" WorkingDirectory="INSTALLFOLDER" Icon="MonoviewIcon" />
-        <RegistryValue Root="HKCU" Key="Software\Monoview\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+                  Target="[APPLICATIONFOLDER]Monoview.exe" WorkingDirectory="APPLICATIONFOLDER" Icon="MonoviewIcon" />
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
 
-    <Component Id="OpenWith" Directory="INSTALLFOLDER">
-      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document" Type="string" Value="Monoview Document" KeyPath="yes" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot;,0" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Monoview.Document\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut">
+        <Shortcut Id="Desktop" Name="Monoview" Description="A fast, clean PDF viewer"
+                  Target="[APPLICATIONFOLDER]Monoview.exe" WorkingDirectory="APPLICATIONFOLDER" Icon="MonoviewIcon" />
+        <RegistryValue Root="HKMU" Key="Software\Monoview\Installer" Name="DesktopShortcutInstalled" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
 
-      <RegistryValue Root="HKCU" Key="Software\Classes\.pdf\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+    <Component Id="OpenWith" Directory="APPLICATIONFOLDER">
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document" Type="string" Value="Monoview Document" KeyPath="yes" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot;,0" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
 
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe" Name="FriendlyAppName" Type="string" Value="Monoview" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".pdf" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".png" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpg" Type="string" Value="" />
-      <RegistryValue Root="HKCU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpeg" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe" Name="FriendlyAppName" Type="string" Value="Monoview" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".pdf" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".png" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpg" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\SupportedTypes" Name=".jpeg" Type="string" Value="" />
 
       <!-- Lists Monoview in Settings > Default apps. -->
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities" Name="ApplicationName" Type="string" Value="Monoview" />
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities" Name="ApplicationDescription" Type="string" Value="A fast, clean PDF viewer and editor." />
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".pdf" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKCU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKCU" Key="Software\RegisteredApplications" Name="Monoview" Type="string" Value="Software\Monoview\Capabilities" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationName" Type="string" Value="Monoview" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationDescription" Type="string" Value="A fast, clean PDF viewer and editor." />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".pdf" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\RegisteredApplications" Name="Monoview" Type="string" Value="Software\Monoview\Capabilities" />
     </Component>
 
-    <Feature Id="Main">
+    <!-- Level 1000 is above INSTALLLEVEL, so a feature is off unless its condition or the Options page turns it on. -->
+    <Feature Id="Main" AllowAbsent="no">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+    <Feature Id="DesktopShortcut" Level="1000">
+      <Level Value="1" Condition="DESKTOPSHORTCUT" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+    <Feature Id="OpenWith" Level="1000">
+      <Level Value="1" Condition="OPENWITH" />
       <ComponentRef Id="OpenWith" />
     </Feature>
+
+    <!-- The wizard: WiX's stock pages, plus OptionsDlg below. -->
+    <WixVariable Id="WixUISupportPerUser" Value="1" />
+    <WixVariable Id="WixUISupportPerMachine" Value="1" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="Dialog.bmp" />
+    <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
+    <Property Id="WixAppFolder" Value="WixPerUserFolder" />
+    <SetProperty Id="WixAppFolder" Value="WixPerMachineFolder" After="AppSearch" Sequence="ui" Condition="PREVMACHINEFOLDER AND NOT PREVUSERFOLDER" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Monoview" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <CustomAction Id="LaunchMonoview" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" />
+
+    <UI Id="MonoviewUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath_X64" Order="3" Condition="NOT WIXUI_DONTVALIDATEPATH" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4" Condition="NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="InstallScopeDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+
+      <!-- Standard users never see the Everyone choice, so their answer is always Just me. -->
+      <Publish Dialog="InstallScopeDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="WixAppFolder" Value="WixPerUserFolder" Order="1" Condition="NOT Privileged" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="ALLUSERS" Value="{}" Order="2" Condition="WixAppFolder = &quot;WixPerUserFolder&quot;" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="ALLUSERS" Value="1" Order="3" Condition="WixAppFolder = &quot;WixPerMachineFolder&quot;" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="APPLICATIONFOLDER" Value="[PREVUSERFOLDER]" Order="4" Condition="WixAppFolder = &quot;WixPerUserFolder&quot; AND PREVUSERFOLDER" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="APPLICATIONFOLDER" Value="[LocalAppDataFolder]Programs\Monoview\" Order="5" Condition="WixAppFolder = &quot;WixPerUserFolder&quot; AND NOT PREVUSERFOLDER" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="APPLICATIONFOLDER" Value="[PREVMACHINEFOLDER]" Order="6" Condition="WixAppFolder = &quot;WixPerMachineFolder&quot; AND PREVMACHINEFOLDER" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Property="APPLICATIONFOLDER" Value="[%ProgramW6432]\Monoview\" Order="7" Condition="WixAppFolder = &quot;WixPerMachineFolder&quot; AND NOT PREVMACHINEFOLDER" />
+      <Publish Dialog="InstallScopeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="8" />
+
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="InstallScopeDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="WixUIValidatePath_X64" Order="2" Condition="NOT WIXUI_DONTVALIDATEPATH" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3" Condition="NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="OptionsDlg" Order="4" Condition="WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+
+      <!-- Feature states were set before the wizard opened, so the boxes switch the features here. -->
+      <Publish Dialog="OptionsDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" />
+      <Publish Dialog="OptionsDlg" Control="Next" Event="AddLocal" Value="DesktopShortcut" Order="1" Condition="DESKTOPSHORTCUT" />
+      <Publish Dialog="OptionsDlg" Control="Next" Event="Remove" Value="DesktopShortcut" Order="2" Condition="NOT DESKTOPSHORTCUT" />
+      <Publish Dialog="OptionsDlg" Control="Next" Event="AddLocal" Value="OpenWith" Order="3" Condition="OPENWITH" />
+      <Publish Dialog="OptionsDlg" Control="Next" Event="Remove" Value="OpenWith" Order="4" Condition="NOT OPENWITH" />
+      <Publish Dialog="OptionsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="5" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="OptionsDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Property="WixShellExecTarget" Value="[APPLICATIONFOLDER]Monoview.exe" Order="1" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchMonoview" Order="2" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Dialog Id="OptionsDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Options" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Choose shortcuts and file types for Monoview." />
+        <Control Id="Desktop" Type="CheckBox" X="20" Y="62" Width="330" Height="17" Property="DESKTOPSHORTCUT" CheckBoxValue="1" Text="Add a shortcut to the desktop" />
+        <Control Id="OpenWithBox" Type="CheckBox" X="20" Y="90" Width="330" Height="17" Property="OPENWITH" CheckBoxValue="1" Text="Add Monoview to Open with for PDF, PNG and JPG files" />
+        <Control Id="OpenWithNote" Type="Text" X="35" Y="109" Width="315" Height="30" NoPrefix="yes" Text="Monoview does not make itself the default app. To do that, choose Monoview in Windows Settings &gt; Apps &gt; Default apps." />
+        <Control Id="UpdatesBox" Type="CheckBox" X="20" Y="148" Width="330" Height="17" Property="CHECKFORUPDATES" CheckBoxValue="1" Text="Check for updates when Monoview starts" />
+        <Control Id="UpdatesNote" Type="Text" X="35" Y="167" Width="315" Height="30" NoPrefix="yes" Text="Monoview asks GitHub if a newer version is out. It sends no personal data." />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+    </UI>
+    <UIRef Id="WixUI_Common" />
   </Package>
 </Wix>

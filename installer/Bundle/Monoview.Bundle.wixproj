@@ -1,0 +1,14 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <!-- Builds Monoview-<version>-setup.exe: the setup window from installer\Setup around the MSI.
+       build-release.ps1 passes Version, MsiPath (the built MSI) and SetupDir (the built setup window). -->
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <OutputName>Monoview-$(Version)-setup</OutputName>
+    <DefineConstants>Version=$(Version);MsiPath=$(MsiPath);SetupDir=$(SetupDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext" Version="7.0.0" />
+  </ItemGroup>
+</Project>
