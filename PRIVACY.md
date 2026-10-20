@@ -8,6 +8,7 @@ Monoview does not collect, store or send any personal data.
 - **No telemetry.** Monoview sends no usage data, crash reports or analytics.
 - **No network access for your files.** Documents and pictures you open stay on your PC. Monoview reads and saves them only where you tell it to.
 - **Local settings only.** Monoview keeps your settings, recent files and saved signatures in your Windows user profile, on this PC only.
+- **Update check.** The MSI and zip builds ask GitHub once a day for the latest version number. The request carries no personal data, and you can turn it off in Settings. The Microsoft Store build does not check; the Store updates it.
 - **Text recognition is local.** Live text in scans and pictures uses the Windows OCR engine on your PC.
 - **Form scripts never run.** Monoview ignores JavaScript in PDF files.
 

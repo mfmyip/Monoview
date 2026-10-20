@@ -67,6 +67,13 @@ internal static class SettingsDialog
         rememberPage.Toggled += (_, _) => settings.RememberLastPage = rememberPage.IsOn;
         content.Children.Add(Section("Reopen files at the last page read", null, null, rememberPage));
 
+        // The Store updates its own build.
+        var checkUpdates = new ToggleSwitch { IsOn = settings.UpdateChecksOn };
+        checkUpdates.Toggled += (_, _) => { if (checkUpdates.IsOn != settings.UpdateChecksOn) settings.CheckForUpdates = checkUpdates.IsOn; };
+        if (!AppRegistration.IsPackaged)
+            content.Children.Add(Section("Check for updates when Monoview starts",
+                "Asks GitHub once a day if a newer version is out. It sends no personal data.", null, checkUpdates));
+
         var dialog = new ContentDialog
         {
             XamlRoot = root,
@@ -91,6 +98,8 @@ internal static class SettingsDialog
             step.Value = AppSettings.DefaultWheelZoomStep * 100;
             defaultZoom.SelectedIndex = 0;
             rememberPage.IsOn = true;
+            settings.CheckForUpdates = null;
+            checkUpdates.IsOn = settings.UpdateChecksOn;
             theme.SelectedIndex = 0;
         };
 
