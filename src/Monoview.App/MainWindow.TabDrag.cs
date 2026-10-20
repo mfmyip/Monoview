@@ -28,6 +28,7 @@ public sealed partial class MainWindow
     private readonly List<(TabViewItem Tab, double Left, double Width)> _dragSlots = [];
     private int _dragFrom, _dragTo;
     private double _dragDx;
+    private double[] _dragShifts = [];  // where each other tab is sliding to
 
     private void AttachTabDrag(TabViewItem tab)
     {
@@ -87,16 +88,9 @@ public sealed partial class MainWindow
             var visual = ElementCompositionPreview.GetElementVisual(t);
             visual.StopAnimation("Translation"); // a glide from the last drop
             visual.ImplicitAnimations = null;
-            if (ReferenceEquals(t, tab)) continue;
-            var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
-            slide.Target = "Translation";
-            slide.InsertExpressionKeyFrame(1f, "this.FinalValue", EaseOut(visual.Compositor));
-            slide.Duration = SlideTime;
-            var animations = visual.Compositor.CreateImplicitAnimationCollection();
-            animations["Translation"] = slide;
-            visual.ImplicitAnimations = animations;
         }
         _dragFrom = _dragTo = _dragSlots.FindIndex(s => ReferenceEquals(s.Tab, tab));
+        _dragShifts = new double[_dragSlots.Count];
     }
 
     /// <summary>
@@ -119,7 +113,9 @@ public sealed partial class MainWindow
         {
             if (i == _dragFrom) continue;
             double shift = i >= _dragTo && i < _dragFrom ? pitch : i <= _dragTo && i > _dragFrom ? -pitch : 0;
-            Shift(_dragSlots[i].Tab, shift);
+            if (shift == _dragShifts[i]) continue;
+            _dragShifts[i] = shift;
+            SlideTo(_dragSlots[i].Tab, shift);
         }
     }
 
@@ -138,7 +134,7 @@ public sealed partial class MainWindow
         _dragDx = 0;
         foreach (var (t, _, _) in _dragSlots)
         {
-            ElementCompositionPreview.GetElementVisual(t).ImplicitAnimations = null;
+            ElementCompositionPreview.GetElementVisual(t).StopAnimation("Translation");
             Shift(t, ReferenceEquals(t, tab) ? settle : 0);
         }
         // Move the others past the dragged tab rather than the tab itself: taking out the selected tab would switch
@@ -151,17 +147,23 @@ public sealed partial class MainWindow
             Tabs.TabItems.Insert(at, item);
         }
         _dragSlots.Clear();
-        var visual = ElementCompositionPreview.GetElementVisual(tab);
-        var glide = visual.Compositor.CreateVector3KeyFrameAnimation();
-        glide.InsertKeyFrame(1f, Vector3.Zero, EaseOut(visual.Compositor));
-        glide.Duration = SlideTime;
-        visual.StartAnimation("Translation", glide);
+        SlideTo(tab, 0);
         // Slides come back once the new order is laid out, so it doesn't play as a slide.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, SlideTabs);
     }
 
     private static void Shift(UIElement tab, double dx) =>
         ElementCompositionPreview.GetElementVisual(tab).Properties.InsertVector3("Translation", new Vector3((float)dx, 0, 0));
+
+    /// <summary>Slides a tab from where it is drawn to <paramref name="dx"/> from its place.</summary>
+    private static void SlideTo(UIElement tab, double dx)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(tab);
+        var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
+        slide.InsertKeyFrame(1f, new Vector3((float)dx, 0, 0), EaseOut(visual.Compositor));
+        slide.Duration = SlideTime;
+        visual.StartAnimation("Translation", slide);
+    }
 
     /// <summary>How long tabs take to slide aside, and the dropped tab to settle, as in Chrome.</summary>
     private static readonly TimeSpan SlideTime = TimeSpan.FromMilliseconds(150);
@@ -181,6 +183,8 @@ public sealed partial class MainWindow
         var grab = _pressOnTab;
         double firstLeft = _dragSlots[0].Left;
         EndStripDrag(commit: false);
+        // While this window holds the mouse, Windows keeps it in front of the new one.
+        tab.ReleasePointerCaptures();
         if (Root.XamlRoot is not { } root || !GetCursorPos(out var cursor)) return;
         double scale = root.RasterizationScale;
         s_tabGrab = (grab.X, tab.ActualWidth);
@@ -211,6 +215,7 @@ public sealed partial class MainWindow
     private static void DragWindow(MainWindow window, TabViewItem tab, PointInt32 grab)
     {
         if (tab.Tag is not DocumentView view) return;
+        KeepOnTop(window, true); // like Chrome, the dragged window stays above every other until it's let go
         var timer = window.DispatcherQueue.CreateTimer();
         timer.Interval = TimeSpan.FromMilliseconds(8);
         MainWindow? target = null;
@@ -223,8 +228,14 @@ public sealed partial class MainWindow
             if (GetAsyncKeyState(LeftButton) >= 0) // let go
             {
                 timer.Stop();
-                if (target is not null) window.MoveTab(tab, target); // at the placeholder; closes the emptied window
-                else window.AppWindow.Show();
+                KeepOnTop(window, false);
+                if (target is not null)
+                {
+                    window.MoveTab(tab, target); // at the placeholder; closes the emptied window
+                    return;
+                }
+                window.AppWindow.Show();
+                window.BringToFront();
                 return;
             }
             window.AppWindow.Move(new PointInt32(cursor.X - grab.X, cursor.Y - grab.Y));
@@ -250,6 +261,12 @@ public sealed partial class MainWindow
         double scale = root.RasterizationScale;
         var p = Root.TransformToVisual(Tabs).TransformPoint(new Point(screen.X / scale, screen.Y / scale));
         return p.X >= 0 && p.X <= Tabs.ActualWidth && p.Y >= -8 && p.Y <= Tabs.ActualHeight + 8 ? p : null;
+    }
+
+    private static void KeepOnTop(MainWindow window, bool on)
+    {
+        const uint NoSize = 0x1, NoMove = 0x2, NoActivate = 0x10;
+        SetWindowPos(WinRT.Interop.WindowNative.GetWindowHandle(window), on ? -1 : -2, 0, 0, 0, 0, NoSize | NoMove | NoActivate); // HWND_TOPMOST, HWND_NOTOPMOST
     }
 
     // ---------------- A tab from another window, held over this one ----------------
@@ -361,4 +378,8 @@ public sealed partial class MainWindow
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ClientToScreen(IntPtr window, ref CursorPoint point);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
 }

@@ -364,7 +364,7 @@
                 Background="{ThemeResource PanelSurfaceBrush}" />
         <Grid x:Name="DocumentHost" Grid.Row="3" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
             <!-- The start page, also shown in a new tab. With no recent files it is the centered first-run page. -->
-            <ScrollViewer x:Name="StartPage" Visibility="Collapsed">
+            <ScrollViewer x:Name="StartPage" Visibility="Collapsed" Background="{ThemeResource PanelSurfaceBrush}">
                 <Grid x:Name="StartArea">
                     <StackPanel x:Name="StartContent" MaxWidth="920" Margin="24,40" Spacing="28">
                         <StackPanel x:Name="HeroHeader" HorizontalAlignment="Center" Spacing="8">
