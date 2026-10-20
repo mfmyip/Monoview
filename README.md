@@ -187,7 +187,7 @@ dotnet publish src/Monoview.App -c Release -p:Platform=x64 -r win-x64 -o publish
 publish\win-x64\Monoview.exe
 ```
 
-Build a release, the portable zip and the installer, into `artifacts\`. The version comes from `src/Monoview.App/Monoview.App.csproj`:
+Build a release into `artifacts\`: the portable zip, the installer and the Store bundle. The version comes from `src/Monoview.App/Monoview.App.csproj`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build-release.ps1
@@ -205,6 +205,13 @@ dotnet test tests/Monoview.Engine.Tests
 | `src/Monoview.App` | The WinUI 3 app: windows, tabs, toolbar, sidebar, the page viewer and dialogs. |
 | `tests/Monoview.Engine.Tests` | Engine tests. They generate their own PDFs, so no sample files are needed. |
 | `tests/Monoview.Benchmarks` | A startup benchmark that measures the time to the first sharp page. |
+
+### Releasing
+
+1. Set the new version in `src/Monoview.App/Monoview.App.csproj` (`0.1.2`) and in `src/Monoview.App/Package.appxmanifest` (`0.1.2.0`), and commit.
+2. Push a matching tag: `git tag v0.1.2`, then `git push origin v0.1.2`.
+3. The **Release** workflow builds everything and publishes the zip and the MSI as a GitHub Release.
+4. Download `store-bundle` from that workflow run on the Actions tab. In Partner Center, start a new submission, upload `Monoview-0.1.2.msixbundle` under Packages, and submit it for certification.
 
 ## Roadmap
 

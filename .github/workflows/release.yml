@@ -1,0 +1,43 @@
+# On a version tag (v0.1.2), builds the release with build-release.ps1, publishes the zip and MSI as a
+# GitHub Release, and keeps the Store bundle as a workflow artifact to upload in Partner Center by hand.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Check the tag matches the app version
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content src\Monoview.App\Monoview.App.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match <Version>$version</Version> in Monoview.App.csproj" }
+
+      - name: Build
+        shell: pwsh
+        run: ./build-release.ps1
+
+      - name: Publish the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME artifacts/*.zip artifacts/*.msi artifacts/SHA256SUMS.txt --title "Monoview $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
+
+      - name: Keep the Store bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-bundle
+          path: artifacts/*.msixbundle
+          retention-days: 30
