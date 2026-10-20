@@ -26,17 +26,24 @@ public sealed class PreviewCache(PdfDocument doc)
 
     private PdfDocument _doc = doc;
 
-    /// <summary>The document previews come from; setting it drops them all and redraws each one on request.</summary>
-    public PdfDocument Document
+    public PdfDocument Document => _doc;
+
+    /// <summary>
+    /// Takes previews from <paramref name="doc"/> from now on. Page i keeps the preview of old page
+    /// <paramref name="carry"/>[i] when that is 0 or more; every other page redraws on request.
+    /// </summary>
+    public void Replace(PdfDocument doc, IReadOnlyList<int>? carry = null)
     {
-        get => _doc;
-        set
-        {
-            _doc = value;
-            _cache.Clear();
-            _inFlight.Clear();
-            DocumentReplaced?.Invoke(this, EventArgs.Empty);
-        }
+        var kept = new List<(int Page, WriteableBitmap Bitmap)>();
+        for (int i = 0; carry is not null && i < carry.Count; i++)
+            if (carry[i] >= 0 && _cache.TryGet(carry[i], out var bitmap))
+                kept.Add((i, bitmap));
+        _doc = doc;
+        _cache.Clear();
+        _inFlight.Clear();
+        foreach (var (page, bitmap) in kept)
+            _cache.Add(page, bitmap);
+        DocumentReplaced?.Invoke(this, EventArgs.Empty);
     }
 
     public event EventHandler? DocumentReplaced;

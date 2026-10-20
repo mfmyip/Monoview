@@ -93,18 +93,25 @@ public sealed partial class MainWindow
             StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
             Width = 18, Height = 18, Stretch = Stretch.None,
         };
-        // Take the button's text color, like the "T" tool does, so the icon follows the window's theme and
-        // the checked state; Application.Current.Resources only knows the Windows theme.
-        path.Loaded += (_, _) =>
+        TakeButtonForeground(path, stroke: true, fill: filled);
+        return path;
+    }
+
+    /// <summary>
+    /// Draws <paramref name="shape"/> in its button's text color, like the "T" tool, so it follows the window's theme,
+    /// the checked state and the greyed-out state; Application.Current.Resources only knows the Windows theme.
+    /// </summary>
+    private static void TakeButtonForeground(Microsoft.UI.Xaml.Shapes.Shape shape, bool stroke, bool fill)
+    {
+        shape.Loaded += (_, _) =>
         {
-            DependencyObject? presenter = path;
+            DependencyObject? presenter = shape;
             while (presenter is not null and not ContentPresenter) presenter = VisualTreeHelper.GetParent(presenter);
             if (presenter is null) return;
             var color = new Microsoft.UI.Xaml.Data.Binding { Source = presenter, Path = new PropertyPath("Foreground") };
-            path.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.StrokeProperty, color);
-            if (filled) path.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.FillProperty, color);
+            if (stroke) shape.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.StrokeProperty, color);
+            if (fill) shape.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.FillProperty, color);
         };
-        return path;
     }
 
     // Built from XAML so ThemeResource follows the window's theme setting.

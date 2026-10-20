@@ -106,11 +106,21 @@ public sealed partial class MainWindow : Window
         // Undo/redo; in a text box they stay the text box's own.
         AddAccelerator(VirtualKey.Z, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: false); } });
         AddAccelerator(VirtualKey.Y, VirtualKeyModifiers.Control, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: true); } });
+        // Ctrl+V in the page list pastes copied pages after the selected one; elsewhere it's left to text and form fields.
+        AddAccelerator(VirtualKey.V, VirtualKeyModifiers.Control, (sender, e) =>
+        {
+            if (CurrentView is not { PagesHaveFocus: true, PageEditing: true } view) return;
+            e.Handled = true;
+            view.RequestPages(PageAction.Paste, destination: view.SelectedPages.Max() + 1);
+        });
         AddAccelerator(VirtualKey.Z, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { if (!TextBoxHasFocus()) { e.Handled = true; _ = StepHistoryAsync(redo: true); } });
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoBack(); });
         AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, (sender, e) => { e.Handled = true; CurrentView?.Viewer.GoForward(); });
 
         BuildMarkupBar();
+        TakeButtonForeground(SidebarIconFrame, stroke: true, fill: false);
+        TakeButtonForeground(SidebarIconDivider, stroke: false, fill: true);
+        TakeButtonForeground(MarkupIcon, stroke: true, fill: false);
         AddAccelerator(VirtualKey.A, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, (sender, e) => { e.Handled = true; SetMarkupBarVisible(MarkupBar.Visibility != Visibility.Visible); });
         UpdateToolbar();
         UpdateHighlightSwatch();
@@ -264,10 +274,15 @@ public sealed partial class MainWindow : Window
         Tabs.TabItems.Remove(tab);
         OnCurrentDocumentChanged();
 
-        var moved = target.CreateDocumentView(view.Document);
-        moved.Viewer.InitialState = state;
-        moved.SetSidebarVisible(sidebar);
-        target._histories[target.AddTab(moved, index)] = history;
+        // Dragged over the target, the view is already built and drawn there.
+        var incoming = target.TakeIncomingTab(view.Document);
+        var moved = incoming?.View ?? target.CreateDocumentView(view.Document);
+        if (incoming is null)
+        {
+            moved.Viewer.InitialState = state;
+            moved.SetSidebarVisible(sidebar);
+        }
+        target._histories[target.AddTab(moved, incoming?.Index ?? index)] = history;
         target.BringToFront();
         if (Tabs.TabItems.Count == 0)
         {
@@ -306,13 +321,73 @@ public sealed partial class MainWindow : Window
         args.Data.RequestedOperation = DataPackageOperation.Move;
     }
 
-    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args) => s_tabDrag = null;
+    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
+    {
+        s_tabDrag = null;
+        foreach (var window in App.Current.Windows)
+            window.TakeIncomingTab(null);
+    }
 
     private void Tabs_TabStripDragOver(object sender, DragEventArgs e)
     {
         if (!IsTabFromOtherWindow(e)) return;
         e.AcceptedOperation = DataPackageOperation.Move;
         e.DragUIOverride.Caption = "Move tab here";
+        ShowIncomingTab(TabIndexAt(e.GetPosition(Tabs).X));
+    }
+
+    /// <summary>
+    /// A tab from another window held over this one: a greyed-out tab with its file name where it will land, and
+    /// its view, built and drawn unseen behind the current one, so the drop shows the document at once.
+    /// </summary>
+    private (TabViewItem Placeholder, DocumentView View)? _incoming;
+
+    /// <summary>Puts the placeholder for the dragged tab at <paramref name="index"/> among this window's tabs.</summary>
+    private void ShowIncomingTab(int index)
+    {
+        if (s_tabDrag is not { Tab.Tag: DocumentView source }) return;
+        if (_incoming is not { } incoming)
+        {
+            var view = CreateDocumentView(source.Document);
+            view.Viewer.InitialState = source.Viewer.CaptureState();
+            view.SetSidebarVisible(source.IsSidebarVisible);
+            view.Opacity = 0;
+            view.IsHitTestVisible = false;
+            DocumentHost.Children.Insert(0, view);
+            var placeholder = new TabViewItem
+            {
+                Header = Path.GetFileName(source.Document.Path), IconSource = new SymbolIconSource { Symbol = Symbol.Document },
+                IsClosable = false, IsHitTestVisible = false, Opacity = 0.45,
+            };
+            _incoming = incoming = (placeholder, view);
+        }
+        int at = Tabs.TabItems.IndexOf(incoming.Placeholder);
+        if (at == index) return;
+        if (at >= 0) Tabs.TabItems.RemoveAt(at);
+        Tabs.TabItems.Insert(Math.Min(index, Tabs.TabItems.Count), incoming.Placeholder);
+        Tabs.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Removes the dragged tab's placeholder. Returns the view built for it, and the placeholder's place, when it shows
+    /// <paramref name="doc"/>; otherwise closes the view and returns null.
+    /// </summary>
+    private (DocumentView View, int Index)? TakeIncomingTab(PdfDocument? doc)
+    {
+        if (_incoming is not { } incoming) return null;
+        _incoming = null;
+        int index = Tabs.TabItems.IndexOf(incoming.Placeholder);
+        Tabs.TabItems.Remove(incoming.Placeholder);
+        DocumentHost.Children.Remove(incoming.View);
+        if (!ReferenceEquals(incoming.View.Document, doc))
+        {
+            incoming.View.Close(closeDocument: false);
+            Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            return null;
+        }
+        incoming.View.Opacity = 1;
+        incoming.View.IsHitTestVisible = true;
+        return (incoming.View, index);
     }
 
     private void Tabs_TabStripDrop(object sender, DragEventArgs e)
@@ -330,15 +405,20 @@ public sealed partial class MainWindow : Window
         else MoveToNewWindow(args.Tab, at);
     }
 
-    /// <summary>Insert before the first tab whose middle is right of <paramref name="x"/>; at the end otherwise.</summary>
+    /// <summary>
+    /// Insert before the first tab whose middle is right of <paramref name="x"/>; at the end otherwise.
+    /// Counts the tabs without the placeholder for a dragged tab.
+    /// </summary>
     private int TabIndexAt(double x)
     {
-        for (int i = 0; i < Tabs.TabItems.Count; i++)
+        int index = 0;
+        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
         {
-            if (Tabs.ContainerFromIndex(i) is not FrameworkElement container) continue;
-            if (x < container.TransformToVisual(Tabs).TransformPoint(default).X + container.ActualWidth / 2) return i;
+            if (ReferenceEquals(tab, _incoming?.Placeholder)) continue;
+            if (x < tab.TransformToVisual(Tabs).TransformPoint(default).X + tab.ActualWidth / 2) return index;
+            index++;
         }
-        return Tabs.TabItems.Count;
+        return index;
     }
 
     /// <summary>Closed files, newest last, for Ctrl+Shift+T.</summary>
@@ -1055,6 +1135,7 @@ public sealed partial class MainWindow : Window
         {
             e.AcceptedOperation = DataPackageOperation.Move;
             e.DragUIOverride.Caption = "Move tab here";
+            if (_incoming is null) ShowIncomingTab(Tabs.TabItems.Count); // over the page: it lands at the end
             return;
         }
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
@@ -1065,7 +1146,12 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Root_DragLeave(object sender, DragEventArgs e) => ShowDropHighlight(false);
+    private void Root_DragLeave(object sender, DragEventArgs e)
+    {
+        ShowDropHighlight(false);
+        var p = e.GetPosition(Root);
+        if (p.X < 0 || p.Y < 0 || p.X >= Root.ActualWidth || p.Y >= Root.ActualHeight) TakeIncomingTab(null);
+    }
 
     /// <summary>Lights up the start page's drop zone while files are dragged over the window.</summary>
     private void ShowDropHighlight(bool on)
@@ -1080,7 +1166,7 @@ public sealed partial class MainWindow : Window
         ShowDropHighlight(false);
         if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
         {
-            drag.Window.MoveTab(drag.Tab, this);
+            drag.Window.MoveTab(drag.Tab, this); // where the placeholder is
             return;
         }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
@@ -1093,10 +1179,15 @@ public sealed partial class MainWindow : Window
 
     private void UpdateToolbar()
     {
-        // Document tools only appear when there's a document; the tab strip only when there are tabs.
-        var docVisibility = CurrentView is not null ? Visibility.Visible : Visibility.Collapsed;
-        SidebarButton.Visibility = SidebarSeparator.Visibility = DocTools.Visibility = SearchTools.Visibility = docVisibility;
-        MarkupBar.Visibility = CurrentView is not null && AppSettings.Current.MarkupBarVisible ? Visibility.Visible : Visibility.Collapsed;
+        // Document tools stay in place on a home tab, greyed out, so the toolbar doesn't jump when a document opens.
+        // The tab strip only shows when there are tabs.
+        bool hasDocument = CurrentView is not null;
+        foreach (var control in DocTools.Children.Concat(SearchTools.Children).Concat(MarkupBar.Children).Append(SidebarButton).OfType<Control>())
+            control.IsEnabled = hasDocument;
+        // Color swatches don't grey out with their buttons.
+        foreach (var swatch in new FrameworkElement[] { HighlightSwatch, UnderlineSwatch, StrikeSwatch, _strokeSwatch!, _fillSwatch! })
+            swatch.Opacity = hasDocument ? 1 : 0.3;
+        MarkupBar.Visibility = AppSettings.Current.MarkupBarVisible ? Visibility.Visible : Visibility.Collapsed;
         UpdateToolButtons();
         Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.Text = CurrentView?.SearchQuery ?? "";
@@ -1267,6 +1358,12 @@ public sealed partial class MainWindow : Window
     private void Accel_Copy(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs e)
     {
         if (TextBoxHasFocus() || CurrentView is not { } view) return;
+        if (view.PagesHaveFocus)
+        {
+            e.Handled = true;
+            view.RequestPages(PageAction.Copy);
+            return;
+        }
         if (view.Viewer.FormHasFocus)
         {
             e.Handled = true;
@@ -1672,7 +1769,7 @@ public sealed partial class MainWindow : Window
                     await OpenFileAsync(Path.Combine(demoFolder, "out.pdf"));
                     SetPageEditing(true);
                     await Pause();
-                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.CopyFrom, [0, 1], 0, Source: manual.Document));
+                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.MoveFrom, [0, 1], 0, From: manual));
                     await Pause(2200);
                     MoveToNewWindow((TabViewItem)Tabs.SelectedItem, new Windows.Graphics.PointInt32(100 + size.Width + 20, 100));
                     await Pause(2500);
@@ -1696,9 +1793,9 @@ public sealed partial class MainWindow : Window
                     await OpenFileAsync(secondFile);
                     await Task.Delay(800);
                     Console.Out.WriteLine($"TABS opened second: {Windows_()}");
-                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.CopyFrom, [0, 1], 0, Source: first.Document));
+                    await RunPageRequestAsync(CurrentView!, new PageRequest(PageAction.MoveFrom, [0, 1], 0, From: first));
                     await Task.Delay(800);
-                    Console.Out.WriteLine($"TABS copied 2 pages in: {Windows_()} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
+                    Console.Out.WriteLine($"TABS moved 2 pages in: {Windows_()} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo}");
                     MoveToNewWindow((TabViewItem)Tabs.SelectedItem);
                     await Task.Delay(1000);
                     Console.Out.WriteLine($"TABS moved to new window: {Windows_()}");

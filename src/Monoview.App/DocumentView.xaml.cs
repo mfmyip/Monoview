@@ -147,11 +147,14 @@ public sealed partial class DocumentView : UserControl, IDisposable
     {
         _thumbs.Clear();
         for (int i = 0; i < Document.PageCount; i++)
-        {
-            var size = Monoview.Engine.Rotation.Apply(Document.PageSizes[i], _previews.Rotation);
-            double scale = Math.Min(ThumbMaxWidth / size.Width, ThumbMaxHeight / size.Height);
-            _thumbs.Add(new ThumbnailItem(i, Math.Round(size.Width * scale), Math.Round(size.Height * scale)));
-        }
+            _thumbs.Add(NewThumbnail(i));
+    }
+
+    private ThumbnailItem NewThumbnail(int page)
+    {
+        var size = Monoview.Engine.Rotation.Apply(Document.PageSizes[page], _previews.Rotation);
+        double scale = Math.Min(ThumbMaxWidth / size.Width, ThumbMaxHeight / size.Height);
+        return new ThumbnailItem(page, Math.Round(size.Width * scale), Math.Round(size.Height * scale));
     }
 
     private void ShowThumbnails()
@@ -176,11 +179,37 @@ public sealed partial class DocumentView : UserControl, IDisposable
         }
     }
 
-    /// <summary>Shows <paramref name="doc"/>, which has the same pages, in this view (undo, redo, save). The caller closes the old one.</summary>
-    public void ReplaceDocument(PdfDocument doc)
+    /// <summary>
+    /// Shows <paramref name="doc"/>, which has as many pages, in this view; the caller closes the old one.
+    /// <paramref name="carry"/> is as in <see cref="PdfViewer.ReplaceDocument"/>; with it, the thumbnails follow the
+    /// pages and keep their pictures, and <paramref name="select"/> pages end up selected.
+    /// </summary>
+    public void ReplaceDocument(PdfDocument doc, IReadOnlyList<int>? carry = null, IReadOnlyList<int>? select = null)
     {
         Document = doc;
-        Viewer.ReplaceDocument(doc);
+        if (carry is not null)
+        {
+            var old = _thumbs.ToList();
+            _syncingThumbs = true;
+            for (int i = 0; i < _thumbs.Count; i++)
+            {
+                if (carry[i] == i) continue;
+                var thumb = NewThumbnail(i);
+                thumb.Image = carry[i] >= 0 ? old[carry[i]].Image : null;
+                _thumbs[i] = thumb;
+            }
+            if (Thumbnails.ItemsSource is null)
+                SelectAfterLoad = select;
+            else if (select is not null)
+            {
+                Thumbnails.SelectedItems.Clear();
+                foreach (int page in select)
+                    Thumbnails.SelectedItems.Add(_thumbs[page]);
+            }
+            _syncingThumbs = false;
+            HideDropGap(animate: false); // the thumbnails now show the order the drag previewed
+        }
+        Viewer.ReplaceDocument(doc, carry);
     }
 
     /// <summary>Pages to select in the sidebar once it's filled (set by the window after a page operation).</summary>
@@ -219,6 +248,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
         if (args.Item is not ThumbnailItem item) return;
         if (args.InRecycleQueue)
         {
+            ResetSlide(args.ItemContainer, animate: false); // a recycled thumbnail may still be slid aside by a drag
             item.Image = null; // keep memory flat on long documents
             return;
         }

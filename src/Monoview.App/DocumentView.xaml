@@ -38,7 +38,8 @@
             </SelectorBar>
 
             <!-- Pages. Read-only until "Edit pages" is on, so a stray drag or Delete can't change the document.
-                 When editing: Ctrl/Shift-click to select several, drag to reorder, Delete, drop a PDF to insert. -->
+                 When editing: Ctrl/Shift-click to select several, drag to reorder or onto another document's pages to move them there,
+                 Delete, Ctrl+C and Ctrl+V to copy pages, drop a PDF to insert. -->
             <Grid x:Name="PagesPanel" Grid.Row="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -57,7 +58,7 @@
                       SelectionChanged="Thumbnails_SelectionChanged"
                       ContainerContentChanging="Thumbnails_ContainerContentChanging"
                       DragItemsStarting="Thumbnails_DragItemsStarting" DragItemsCompleted="Thumbnails_DragItemsCompleted"
-                      DragOver="Thumbnails_DragOver" Drop="Thumbnails_Drop"
+                      DragOver="Thumbnails_DragOver" DragLeave="Thumbnails_DragLeave" Drop="Thumbnails_Drop"
                       KeyDown="Thumbnails_KeyDown" ContextRequested="Thumbnails_ContextRequested">
                 <ListView.ContextFlyout>
                     <MenuFlyout x:Name="PageMenu" Opening="PageMenu_Opening">
@@ -69,6 +70,12 @@
                         <MenuFlyoutItem Text="Rotate right" Tag="RotateRight" Click="PageMenu_Click" />
                         <MenuFlyoutItem Text="Delete" Tag="Delete" Click="PageMenu_Click" KeyboardAcceleratorTextOverride="Delete">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Copy" Tag="Copy" Click="PageMenu_Click" KeyboardAcceleratorTextOverride="Ctrl+C">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Paste after" Tag="Paste" Click="PageMenu_Click" KeyboardAcceleratorTextOverride="Ctrl+V">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE77F;" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Insert pages from file…" Tag="InsertFromFile" Click="PageMenu_Click">

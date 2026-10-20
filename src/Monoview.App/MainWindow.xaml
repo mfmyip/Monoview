@@ -71,6 +71,19 @@
 
         <!-- Toolbar first, like Preview; the tab strip below it only appears once a document is open. -->
         <Grid x:Name="Toolbar" Grid.Row="0" Padding="8,6" ColumnSpacing="8">
+            <!-- On a home tab the document tools are greyed out: icon only, no fill. -->
+            <Grid.Resources>
+                <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ToggleButtonBackgroundDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ToggleButtonBorderBrushDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="SplitButtonBackgroundDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="SplitButtonBorderBrushDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="SplitButtonBackgroundCheckedDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="SplitButtonBorderBrushCheckedDisabled" Color="Transparent" />
+            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -140,6 +153,8 @@
                                 <MenuFlyoutItem Text="Rotate left" Tag="RotateLeft" Click="PagesMenu_Click" />
                                 <MenuFlyoutItem Text="Rotate right" Tag="RotateRight" Click="PagesMenu_Click" />
                                 <MenuFlyoutItem Text="Delete" Tag="Delete" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Copy pages" Tag="Copy" Click="PagesMenu_Click" />
+                                <MenuFlyoutItem Text="Paste pages after" Tag="Paste" Click="PagesMenu_Click" />
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Insert pages from file…" Tag="InsertFromFile" Click="PagesMenu_Click" />
                                 <MenuFlyoutItem Text="Extract pages to a new PDF…" Tag="Extract" Click="PagesMenu_Click" />
@@ -211,10 +226,8 @@
                         ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)" AutomationProperties.Name="Sidebar">
                     <!-- Panel icon like Claude's: rounded window outline with the sidebar divider on the left. -->
                     <Grid Width="16" Height="14">
-                        <Rectangle RadiusX="3" RadiusY="3" StrokeThickness="1.25"
-                                   Stroke="{ThemeResource TextFillColorPrimaryBrush}" />
-                        <Rectangle Width="1.25" HorizontalAlignment="Left" Margin="5,0,0,0"
-                                   Fill="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <Rectangle x:Name="SidebarIconFrame" RadiusX="3" RadiusY="3" StrokeThickness="1.25" />
+                        <Rectangle x:Name="SidebarIconDivider" Width="1.25" HorizontalAlignment="Left" Margin="5,0,0,0" />
                     </Grid>
                 </Button>
                 <Rectangle x:Name="SidebarSeparator" Style="{StaticResource ToolSeparator}" />
@@ -305,7 +318,7 @@
                                   CornerRadius="4" Click="MarkupToggle_Click"
                                   ToolTipService.ToolTip="Markup tools: draw, shapes, text boxes and notes (Ctrl+Shift+A)" AutomationProperties.Name="Markup tools">
                         <!-- A pen over a square: drawing and shapes, unlike the highlighter's marker. -->
-                        <Path Data="M2,6 L2,16 L12,16 L12,12 M6,12 L16,2 L18,4 L8,14 L5,15 Z" Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                        <Path x:Name="MarkupIcon" Data="M2,6 L2,16 L12,16 L12,12 M6,12 L16,2 L18,4 L8,14 L5,15 Z"
                               StrokeThickness="1.4" StrokeLineJoin="Round" Width="20" Height="18" />
                     </ToggleButton>
                     <Rectangle Style="{StaticResource ToolSeparator}" />

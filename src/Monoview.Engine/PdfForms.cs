@@ -6,8 +6,12 @@ namespace Monoview.Engine;
 
 public enum FormFieldKind { Unknown, PushButton, CheckBox, RadioButton, ComboBox, ListBox, Text, Signature }
 
-/// <summary>A form field on a page. Rect is in unrotated normalized page coordinates.</summary>
-public sealed record FormField(int PageIndex, string Name, FormFieldKind Kind, string Value, bool IsChecked, NormRect Rect);
+/// <summary>
+/// A form field on a page. Rect is in unrotated normalized page coordinates. A drop-down list (ComboBox) has its
+/// choices in Options, and Editable when the document lets you type your own value.
+/// </summary>
+public sealed record FormField(int PageIndex, string Name, FormFieldKind Kind, string Value, bool IsChecked, NormRect Rect,
+    int AnnotIndex = -1, IReadOnlyList<string>? Options = null, bool Editable = false);
 
 /// <summary>Pointer events passed to form fields.</summary>
 public enum FormPointer { Move, Down, Up, DoubleClick }
@@ -20,6 +24,7 @@ public sealed partial class PdfDocument
 {
     private const int FormTypeNone = 0;
     private const int ModifierShift = 1, ModifierControl = 2, ModifierAlt = 4; // FWL_EVENTFLAG_*
+    private const int ChoiceEditFlag = 1 << 18; // FPDF_FORMFLAG_CHOICE_EDIT
 
     private IntPtr _form;       // FPDF_FORMHANDLE, zero when the document has no form
     private IntPtr _formInfo;   // our FPDF_FORMFILLINFO, which PDFium keeps a pointer to
@@ -118,12 +123,21 @@ public sealed partial class PdfDocument
             {
                 int type = FPDFAnnot_GetFormFieldType(_form, annot);
                 if (type <= 0 || FPDFAnnot_GetRect(annot, out var r) == 0) continue;
+                var kind = (FormFieldKind)Math.Clamp(type, 0, 7);
+                string[]? options = null;
+                if (kind == FormFieldKind.ComboBox)
+                {
+                    options = new string[Math.Max(0, FPDFAnnot_GetOptionCount(_form, annot))];
+                    for (int o = 0; o < options.Length; o++)
+                        options[o] = FormString((b, n) => FPDFAnnot_GetOptionLabel(_form, annot, o, b, n));
+                }
                 fields.Add(new FormField(pageIndex,
                     FormString((b, n) => FPDFAnnot_GetFormFieldName(_form, annot, b, n)),
-                    (FormFieldKind)Math.Clamp(type, 0, 7),
+                    kind,
                     FormString((b, n) => FPDFAnnot_GetFormFieldValue(_form, annot, b, n)),
                     FPDFAnnot_IsChecked(_form, annot) != 0,
-                    transform.ApplyToBox(Math.Min(r.Left, r.Right), Math.Min(r.Top, r.Bottom), Math.Max(r.Left, r.Right), Math.Max(r.Top, r.Bottom))));
+                    transform.ApplyToBox(Math.Min(r.Left, r.Right), Math.Min(r.Top, r.Bottom), Math.Max(r.Left, r.Right), Math.Max(r.Top, r.Bottom)),
+                    i, options, (FPDFAnnot_GetFormFieldFlags(_form, annot) & ChoiceEditFlag) != 0));
             }
             finally
             {
@@ -158,6 +172,25 @@ public sealed partial class PdfDocument
             FormPointer.Up => FORM_OnLButtonUp(_form, page, modifiers, px, py),
             _ => FORM_OnLButtonDoubleClick(_form, page, modifiers, px, py),
         } != 0;
+    }, WorkPriority.High);
+
+    /// <summary>Sets a drop-down list (<see cref="FormField.AnnotIndex"/> on its page) to its choice number <paramref name="option"/>.</summary>
+    public Task FormChooseAsync(int pageIndex, int annotIndex, int option) => PdfiumThread.Run(() =>
+    {
+        if (_form == IntPtr.Zero) return;
+        var page = GetPage(pageIndex).__Instance;
+        IntPtr annot = FPDFPage_GetAnnot(page, annotIndex);
+        if (annot == IntPtr.Zero) return;
+        try
+        {
+            if (FORM_SetFocusedAnnot(_form, annot) != 0)
+                FORM_SetIndexSelected(_form, page, option, 1);
+            CommitFormFocus();
+        }
+        finally
+        {
+            FPDFPage_CloseAnnot(annot);
+        }
     }, WorkPriority.High);
 
     /// <summary>Types one character into the focused field.</summary>
@@ -289,4 +322,9 @@ public sealed partial class PdfDocument
     [DllImport("pdfium")] private static extern uint FPDFAnnot_GetFormFieldName(IntPtr form, IntPtr annot, [In, Out] byte[]? buffer, uint length);
     [DllImport("pdfium")] private static extern uint FPDFAnnot_GetFormFieldValue(IntPtr form, IntPtr annot, [In, Out] byte[]? buffer, uint length);
     [DllImport("pdfium")] private static extern int FPDFAnnot_IsChecked(IntPtr form, IntPtr annot);
+    [DllImport("pdfium")] private static extern int FPDFAnnot_GetFormFieldFlags(IntPtr form, IntPtr annot);
+    [DllImport("pdfium")] private static extern int FPDFAnnot_GetOptionCount(IntPtr form, IntPtr annot);
+    [DllImport("pdfium")] private static extern uint FPDFAnnot_GetOptionLabel(IntPtr form, IntPtr annot, int index, [In, Out] byte[]? buffer, uint length);
+    [DllImport("pdfium")] private static extern int FORM_SetFocusedAnnot(IntPtr form, IntPtr annot);
+    [DllImport("pdfium")] private static extern int FORM_SetIndexSelected(IntPtr form, IntPtr page, int index, int selected);
 }

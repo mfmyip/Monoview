@@ -172,15 +172,17 @@ public sealed partial class PdfViewer
     }
 
     /// <summary>
-    /// Shows <paramref name="doc"/> in place of the current document, which must have the same pages at the same
-    /// sizes (undo, redo, save). Every page redraws, and its old drawing stays up until the new one is ready.
+    /// Shows <paramref name="doc"/> in place of the current document, which must have as many pages. Without
+    /// <paramref name="carry"/> the pages are the same (undo, redo, save): each redraws, and its old drawing stays up
+    /// until the new one is ready. With it, page i shows old page <paramref name="carry"/>[i] (moved), or is new
+    /// when that is -1 (rotated, cropped): moved pages keep their preview, and nothing shows a page that left.
     /// </summary>
-    public void ReplaceDocument(PdfDocument doc)
+    public void ReplaceDocument(PdfDocument doc, IReadOnlyList<int>? carry = null)
     {
         DetachForm(_doc);
         _doc = doc;
         AttachForm(doc);
-        _previews.Document = doc;
+        _previews.Replace(doc, carry);
         _tiles.Clear();
         _texts.Clear();
         _links.Clear();
@@ -192,10 +194,22 @@ public sealed partial class PdfViewer
         _drawing = null;
         foreach (var view in _views.Values)
         {
-            view.MarkTilesStale(_w[view.Index]);
-            view.PreviewRequested = false;
+            if (carry is null || carry[view.Index] == view.Index)
+            {
+                view.MarkTilesStale(_w[view.Index]);
+                view.PreviewRequested = false;
+            }
+            else
+            {
+                view.Bind(view.Index);
+                RefreshOverlay(view);
+            }
         }
-        UpdateViewport(requestTiles: true);
+        // Rotated or moved pages may change size.
+        if (carry is not null)
+            ApplyZoom(FitMode == FitMode.Custom ? _zoom : ComputeFitZoom(), TopCenterAnchor(), requestTiles: true);
+        else
+            UpdateViewport(requestTiles: true);
     }
 
     private void EnsureMarkups(int index)

@@ -1,5 +1,7 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Monoview.Engine;
 using Windows.ApplicationModel.DataTransfer;
@@ -115,14 +117,73 @@ public sealed partial class PdfViewer
         if (!_doc.HasForm || _tool != MarkupTool.Select || PendingStamp is not null) return false;
         if (FieldAt(p) is not { } field)
         {
-            if (_formFocused) _ = LeaveFieldAsync();
-            return false;
+            if (!_formFocused) return false;
+            // An open drop-down list hangs below its field, outside every field's box: the form gets the click first.
+            int listPage = PageAtPoint(p);
+            _formPressPage = listPage;
+            _surface.CapturePointer(e.Pointer);
+            _ = PressOutsideFieldAsync(listPage, ToPageCoords(listPage, p));
+            return true;
         }
         int page = field.PageIndex;
+        var box = FieldBox(field);
+        // A drop-down list opens as a menu: anywhere on it, or on its arrow end when you can also type in it.
+        if (field is { Kind: FormFieldKind.ComboBox, Options.Count: > 0 } && (!field.Editable || DropButtonBox(field).Contains(p)))
+        {
+            ShowChoices(field, box);
+            return true;
+        }
         _formPressPage = page;
         _surface.CapturePointer(e.Pointer);
         _ = PressFieldAsync(page, ToPageCoords(page, p), (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0);
         return true;
+    }
+
+    /// <summary>Where a field is on the surface.</summary>
+    private Rect FieldBox(FormField field)
+    {
+        int page = field.PageIndex;
+        var r = Monoview.Engine.Rotation.ToView(field.Rect, _rotation);
+        return new Rect(_left[page] + r.Left * _w[page], _top[page] + r.Top * _h[page], r.Width * _w[page], r.Height * _h[page]);
+    }
+
+    /// <summary>The drop-down button at a drop-down list's right end: the form engine draws it 13 points wide, inside the field's border.</summary>
+    private Rect DropButtonBox(FormField field)
+    {
+        var box = FieldBox(field);
+        double width = Math.Min(box.Width, 15 * _w[field.PageIndex] / ShownSize(field.PageIndex).Width);
+        return new Rect(box.Right - width, box.Top, width, box.Height);
+    }
+
+    /// <summary>A drop-down list's choices as a menu under it, the current one checked.</summary>
+    private void ShowChoices(FormField field, Rect box)
+    {
+        var menu = new MenuFlyout
+        {
+            MenuFlyoutPresenterStyle = new Style(typeof(MenuFlyoutPresenter))
+            {
+                Setters = { new Setter(MinWidthProperty, box.Width * _scroller.ZoomFactor) },
+            },
+        };
+        for (int i = 0; i < field.Options!.Count; i++)
+        {
+            int option = i;
+            var item = new ToggleMenuFlyoutItem { Text = field.Options[i], IsChecked = field.Options[i] == field.Value };
+            item.Click += (_, _) => _ = ChooseAsync(field, option);
+            menu.Items.Add(item);
+        }
+        menu.ShowAt(_surface, new FlyoutShowOptions { Position = new Point(box.Left, box.Bottom), Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft });
+    }
+
+    /// <summary>Sets a drop-down list to a choice, as one undo step.</summary>
+    private async Task ChooseAsync(FormField field, int option)
+    {
+        if (_formFocused) await LeaveFieldAsync();
+        if (BeforeEdit is not null) await BeforeEdit();
+        _formCheckpoint = true;
+        _formChanged = false;
+        await _doc.FormChooseAsync(field.PageIndex, field.AnnotIndex, option);
+        await FinishFieldEditAsync();
     }
 
     private async Task PressFieldAsync(int page, (double X, double Y) at, bool shift)
@@ -135,6 +196,12 @@ public sealed partial class PdfViewer
         await _doc.FormPointerAsync(page, FormPointer.Down, at.X, at.Y, shift);
         _formFocused = await _doc.FormFocusPageAsync() is not null;
         if (!_formFocused) await FinishFieldEditAsync(); // a check box or button: done with one click
+    }
+
+    /// <summary>A choice in an open drop-down list; anywhere else leaves the field.</summary>
+    private async Task PressOutsideFieldAsync(int page, (double X, double Y) at)
+    {
+        if (!await _doc.FormPointerAsync(page, FormPointer.Down, at.X, at.Y)) await LeaveFieldAsync();
     }
 
     private bool HandleFormRelease(PointerRoutedEventArgs e, Point p)
@@ -155,8 +222,11 @@ public sealed partial class PdfViewer
             _ = _doc.FormPointerAsync(page, FormPointer.Move, x, y); // drag-selects text in the field
             return true;
         }
-        if (_tool != MarkupTool.Select || PendingStamp is not null || FieldAt(p) is not { } field) return false;
-        ProtectedCursor = field.Kind is FormFieldKind.Text ? _fieldTextCursor : _handCursor;
+        if (_tool != MarkupTool.Select || PendingStamp is not null) return false;
+        var field = FieldAt(p);
+        // With a field focused, a click elsewhere goes to the form (an open drop-down list), not to text selection.
+        if (field is null && !_formFocused) return false;
+        ProtectedCursor = field is null ? _arrowCursor : field.Kind is FormFieldKind.Text ? _fieldTextCursor : _handCursor;
         _textCursorShown = false;
         _overLink = true; // so leaving the field puts the usual cursor back
         return true;
@@ -188,6 +258,7 @@ public sealed partial class PdfViewer
         {
             for (int page = 0; page < PageCount; page++) _previews.Invalidate(page);
             _formFields.Clear();
+            UpdateViewport(requestTiles: false); // reloads the fields on screen, or clicks on them would miss until a scroll
         }
         else
         {
