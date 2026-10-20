@@ -208,8 +208,8 @@ dotnet test tests/Monoview.Engine.Tests
 
 ### Releasing
 
-1. Set the new version in `src/Monoview.App/Monoview.App.csproj` (`0.1.2`) and in `src/Monoview.App/Package.appxmanifest` (`0.1.2.0`), and commit.
-2. Push a matching tag: `git tag v0.1.2`, then `git push origin v0.1.2`.
+1. Set the new version in `src/Monoview.App/Monoview.App.csproj` (`0.1.2`) and in `src/Monoview.App/Package.appxmanifest` (`0.1.2.0`), and merge that change into `main` through a pull request.
+2. Update your local `main`, then tag its latest commit and push the tag: `git tag v0.1.2`, then `git push origin v0.1.2`.
 3. The **Release** workflow builds everything and publishes the zip and the MSI as a GitHub Release.
 4. Download `store-bundle` from that workflow run on the Actions tab. In Partner Center, start a new submission, upload `Monoview-0.1.2.msixbundle` under Packages, and submit it for certification.
 

@@ -1,0 +1,28 @@
+# On every pull request into main: build the whole solution with warnings as errors, then run the engine tests.
+# Branch protection on main requires the "Build and test" check to pass before a merge.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: dotnet build Monoview.sln -c Release -p:Platform=x64 -warnaserror
+
+      - name: Test
+        run: dotnet test tests/Monoview.Engine.Tests -c Release
