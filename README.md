@@ -18,6 +18,10 @@
 
 <br>
 
+<a href="https://apps.microsoft.com/detail/9N8G6JSG2MH6?mode=direct"><img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft"></a>
+
+<br>
+
 <img src="docs/images/reading-light.png" width="820" alt="Monoview showing a book chapter with the page sidebar open">
 
 <br>
@@ -155,7 +159,11 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
 
 ## Download
 
-Get the latest version from [GitHub Releases](https://github.com/mfmyip/Monoview/releases):
+<a href="https://apps.microsoft.com/detail/9N8G6JSG2MH6?mode=direct"><img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft"></a>
+
+The [Microsoft Store](https://apps.microsoft.com/detail/9N8G6JSG2MH6) is the easiest way to install Monoview. It runs on x64 and ARM64, updates automatically and shows no SmartScreen warning.
+
+Or get the latest version from [GitHub Releases](https://github.com/mfmyip/Monoview/releases):
 
 | File | What it is |
 |---|---|
