@@ -1,5 +1,5 @@
-# On every pull request into main: build the whole solution with warnings as errors, then run the engine tests.
-# Branch protection on main requires the "Build and test" check to pass before a merge.
+# On every pull request into main: build the whole solution with warnings as errors and run the engine tests, then
+# test the MSI and setup.exe on a clean runner. Branch protection on main requires "Build and test" to pass.
 name: CI
 
 on:
@@ -26,3 +26,74 @@ jobs:
 
       - name: Test
         run: dotnet test tests/Monoview.Engine.Tests -c Release
+
+  installer:
+    # Installs and removes the MSI and setup.exe silently on a clean runner and checks what they leave behind:
+    # files, shortcuts, Open with, and the choices the app reads from Software\Monoview\Installer.
+    name: Installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build the MSI and setup.exe
+        shell: pwsh
+        run: |
+          dotnet publish src/Monoview.App -c Release -p:Platform=x64 -r win-x64 -o publish
+          if ($LASTEXITCODE) { throw 'publish failed' }
+          dotnet build installer/Monoview.Installer.wixproj -c Release -p:Version=0.0.1 "-p:PublishDir=$PWD\publish" -o out
+          if ($LASTEXITCODE) { throw 'MSI build failed' }
+          dotnet build installer/Setup -c Release -o setup-window
+          if ($LASTEXITCODE) { throw 'setup window build failed' }
+          dotnet build installer/Bundle/Monoview.Bundle.wixproj -c Release -p:Version=0.0.1 "-p:MsiPath=$PWD\out\Monoview-0.0.1-win-x64.msi" "-p:SetupDir=$PWD\setup-window" -o out
+          if ($LASTEXITCODE) { throw 'setup.exe build failed' }
+
+      - name: Install, check and uninstall
+        shell: pwsh
+        run: |
+          $folder = "$env:LOCALAPPDATA\Programs\Monoview\"
+          $key = 'HKCU:\Software\Monoview\Installer'
+          function Run($file, $arguments) {
+            $p = Start-Process $file -ArgumentList $arguments -PassThru
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "$file $arguments timed out" }
+            if ($p.ExitCode) { throw "$file $arguments exited with $($p.ExitCode)" }
+          }
+          function Expect($what, $actual, $expected) {
+            if ("$actual" -ne "$expected") { throw "$what is '$actual', expected '$expected'" }
+            "ok: $what = '$actual'"
+          }
+          function Installed($values) {
+            Expect 'Monoview.exe' (Test-Path "$folder\Monoview.exe") $true
+            Expect 'Start menu shortcut' (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Monoview.lnk") $true
+            $saved = Get-ItemProperty $key
+            foreach ($name in $values.Keys) { Expect $name $saved.$name $values[$name] }
+          }
+          function Removed {
+            Expect 'Monoview.exe after uninstall' (Test-Path "$folder\Monoview.exe") $false
+            $left = if (Test-Path $key) { (Get-Item $key).GetValueNames().Count } else { 0 }
+            Expect 'saved choices after uninstall' $left 0
+          }
+
+          "== MSI with every option changed"
+          Run msiexec "/i out\Monoview-0.0.1-win-x64.msi /qn CHECKFORUPDATES=0 DESKTOPSHORTCUT=1 OPENWITH=0 /l*v msi.log"
+          Installed @{ InstallFolder = $folder; CheckForUpdates = 0; DesktopShortcut = 'on'; OpenWith = 'off' }
+          Expect 'desktop shortcut' (Test-Path "$([Environment]::GetFolderPath('Desktop'))\Monoview.lnk") $true
+          Run msiexec "/x out\Monoview-0.0.1-win-x64.msi /qn /l*v msi-uninstall.log"
+          Removed
+
+          "== setup.exe with the defaults"
+          Run out\Monoview-0.0.1-setup.exe "/quiet /log setup.log"
+          Installed @{ InstallFolder = $folder; CheckForUpdates = 1; DesktopShortcut = 'off'; OpenWith = 'on' }
+          Expect 'Open with for .pdf' ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.pdf\OpenWithProgids' -Name 'Monoview.Document' -ErrorAction SilentlyContinue)) $true
+          Run out\Monoview-0.0.1-setup.exe "/uninstall /quiet /log setup-uninstall.log"
+          Removed
+
+      - name: Keep the install logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: installer-logs
+          path: '*.log'

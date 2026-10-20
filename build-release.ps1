@@ -1,4 +1,4 @@
-# Builds a Monoview release into artifacts\: the portable zip, the per-user MSI installer, SHA-256 checksums,
+# Builds a Monoview release into artifacts\: setup.exe, the MSI, the portable zip, SHA-256 checksums,
 # and the Store bundle (Monoview-<version>.msixbundle) to upload in Partner Center.
 # The version comes from src\Monoview.App\Monoview.App.csproj. Run from any folder:
 #   powershell -ExecutionPolicy Bypass -File build-release.ps1
@@ -25,8 +25,20 @@ Write-Host 'Zipping the portable app'
 Compress-Archive -Path $app -DestinationPath (Join-Path $out "$name.zip") -CompressionLevel Optimal
 
 Write-Host 'Building the installer'
-dotnet build (Join-Path $root 'installer\Monoview.Installer.wixproj') -c Release -p:Version=$version -p:PublishDir=$app -o $out
+# --no-incremental: WiX skips the build when only Version changes, and then finds no MSI to copy.
+dotnet build (Join-Path $root 'installer\Monoview.Installer.wixproj') --no-incremental -c Release -p:Version=$version -p:PublishDir=$app -o $out
 if ($LASTEXITCODE) { throw 'Installer build failed' }
+Get-ChildItem $out -Filter *.wixpdb | Remove-Item
+
+Write-Host 'Building setup.exe'
+# The setup window (installer\Setup) wrapped around the MSI by WiX Burn (installer\Bundle).
+$setupWindow = Join-Path $out 'setup-window'
+dotnet build (Join-Path $root 'installer\Setup\Monoview.Setup.csproj') -c Release -o $setupWindow
+if ($LASTEXITCODE) { throw 'Setup window build failed' }
+dotnet build (Join-Path $root 'installer\Bundle\Monoview.Bundle.wixproj') --no-incremental -c Release -p:Version=$version `
+    "-p:MsiPath=$(Join-Path $out "$name.msi")" "-p:SetupDir=$setupWindow" -o $out
+if ($LASTEXITCODE) { throw 'setup.exe build failed' }
+Remove-Item -Recurse -Force $setupWindow
 Get-ChildItem $out -Filter *.wixpdb | Remove-Item
 
 # The Store bundle: one unsigned MSIX per architecture, joined with makeappx. Partner Center signs it.
@@ -50,7 +62,7 @@ $makeappx = Get-ChildItem (Join-Path $nuget 'microsoft.windows.sdk.buildtools') 
 if ($LASTEXITCODE) { throw 'makeappx bundle failed' }
 Remove-Item -Recurse -Force $store
 
-$sums = Get-ChildItem $out -File | Where-Object { $_.Extension -in '.zip', '.msi' } |
+$sums = Get-ChildItem $out -File | Where-Object { $_.Extension -in '.exe', '.zip', '.msi' } |
     ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name }
 $sums | Set-Content (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
 $sums

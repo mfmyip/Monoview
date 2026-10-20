@@ -167,7 +167,8 @@ Or get the latest version from [GitHub Releases](https://github.com/mfmyip/Monov
 
 | File | What it is |
 |---|---|
-| `Monoview-x.y.z-win-x64.msi` | The installer. It installs for you only, with no admin prompt, adds Monoview to the Start menu and to "Open with" for PDF, PNG and JPG, and uninstalls from Settings > Apps. |
+| `Monoview-x.y.z-setup.exe` | The installer. It asks whether to install just for you, with no admin prompt, or for everyone, and where. Options: a desktop shortcut, "Open with" for PDF, PNG and JPG, and checking for updates. Uninstall from Settings > Apps. |
+| `Monoview-x.y.z-win-x64.msi` | The same install as a plain MSI, for scripts and IT. A silent install, `msiexec /i Monoview-x.y.z-win-x64.msi /qn`, installs just for you; set `ALLUSERS=1`, `APPLICATIONFOLDER`, `DESKTOPSHORTCUT=1`, `OPENWITH=0` or `CHECKFORUPDATES=0` to change that. |
 | `Monoview-x.y.z-win-x64.zip` | The portable app. Unzip it anywhere and run `Monoview.exe`; nothing is installed. |
 
 To make Monoview your default PDF app, pick it in Settings > Apps > Default apps.
@@ -187,7 +188,7 @@ dotnet publish src/Monoview.App -c Release -p:Platform=x64 -r win-x64 -o publish
 publish\win-x64\Monoview.exe
 ```
 
-Build a release into `artifacts\`: the portable zip, the installer and the Store bundle. The version comes from `src/Monoview.App/Monoview.App.csproj`:
+Build a release into `artifacts\`: setup.exe, the MSI, the portable zip and the Store bundle. The version comes from `src/Monoview.App/Monoview.App.csproj`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build-release.ps1
@@ -210,7 +211,7 @@ dotnet test tests/Monoview.Engine.Tests
 
 1. Set the new version in `src/Monoview.App/Monoview.App.csproj` (`0.1.2`) and in `src/Monoview.App/Package.appxmanifest` (`0.1.2.0`), and merge that change into `main` through a pull request.
 2. Update your local `main`, then tag its latest commit and push the tag: `git tag v0.1.2`, then `git push origin v0.1.2`.
-3. The **Release** workflow builds everything and publishes the zip and the MSI as a GitHub Release.
+3. The **Release** workflow builds everything and publishes setup.exe, the MSI and the zip as a GitHub Release.
 4. Download `store-bundle` from that workflow run on the Actions tab. In Partner Center, start a new submission, upload `Monoview-0.1.2.msixbundle` under Packages, and submit it for certification.
 
 ## Roadmap

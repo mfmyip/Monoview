@@ -1,5 +1,5 @@
-<Project Sdk="WixToolset.Sdk/5.0.2">
-  <!-- Builds the per-user MSI from a published app folder. build-release.ps1 passes Version and PublishDir. -->
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <!-- Builds the MSI from a published app folder. build-release.ps1 passes Version and PublishDir. -->
   <PropertyGroup>
     <Version Condition="'$(Version)' == ''">0.0.0</Version>
     <OutputName>Monoview-$(Version)-win-x64</OutputName>
@@ -7,7 +7,15 @@
     <DefineConstants>Version=$(Version);PublishDir=$(PublishDir)</DefineConstants>
     <!-- Per-user installs keep files in the user profile with registry key paths, which these checks are written
          for per-machine installs to flag. ICE03: some .NET DLLs carry a language id in their version info that
-         Windows Installer validation calls invalid; it is only metadata. -->
-    <SuppressIces>ICE03;ICE38;ICE64;ICE91</SuppressIces>
+         Windows Installer validation calls invalid; it is only metadata. ICE57: shortcut folders follow the chosen
+         scope, which this check cannot see in a package that installs for one user or for everyone. -->
+    <SuppressIces>ICE03;ICE38;ICE57;ICE64;ICE91</SuppressIces>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The MSI is Package.wxs only; Bundle\ and Setup\ build setup.exe on their own. -->
+    <Compile Remove="Bundle\**;Setup\**" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="7.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
 </Project>
