@@ -360,7 +360,7 @@
         <TabView x:Name="Tabs" Grid.Row="1" VerticalAlignment="Top" Visibility="Collapsed"
                  TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="True" AllowDropTabs="True"
                  TabDragStarting="Tabs_TabDragStarting" TabDragCompleted="Tabs_TabDragCompleted"
-                 TabDroppedOutside="Tabs_TabDroppedOutside" TabStripDragOver="Tabs_TabStripDragOver" TabStripDrop="Tabs_TabStripDrop"
+                 TabDroppedOutside="Tabs_TabDroppedOutside"
                  AddTabButtonClick="Tabs_AddTabButtonClick"
                  TabCloseRequested="Tabs_TabCloseRequested"
                  SelectionChanged="Tabs_SelectionChanged">

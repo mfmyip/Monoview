@@ -319,21 +319,23 @@ public sealed partial class MainWindow : Window
         s_tabDrag = (this, args.Tab);
         args.Data.SetData(TabDragFormat, "tab");
         args.Data.RequestedOperation = DataPackageOperation.Move;
+        // The other windows place the tab themselves, with a placeholder. A tab strip's own drop handling opens a
+        // gap only near its end, and changing its tabs while it handles the drag crashes the app.
+        foreach (var window in App.Current.Windows.Where(w => w != this))
+            window.Tabs.AllowDropTabs = false;
     }
 
-    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
+    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args) => EndTabDrag();
+
+    /// <summary>Clears a finished tab drag in every window. Also run after a drop, because a window left without tabs closes before its drag completes.</summary>
+    private static void EndTabDrag()
     {
         s_tabDrag = null;
         foreach (var window in App.Current.Windows)
+        {
             window.TakeIncomingTab(null);
-    }
-
-    private void Tabs_TabStripDragOver(object sender, DragEventArgs e)
-    {
-        if (!IsTabFromOtherWindow(e)) return;
-        e.AcceptedOperation = DataPackageOperation.Move;
-        e.DragUIOverride.Caption = "Move tab here";
-        ShowIncomingTab(TabIndexAt(e.GetPosition(Tabs).X));
+            window.Tabs.AllowDropTabs = true;
+        }
     }
 
     /// <summary>
@@ -388,12 +390,6 @@ public sealed partial class MainWindow : Window
         incoming.View.Opacity = 1;
         incoming.View.IsHitTestVisible = true;
         return (incoming.View, index);
-    }
-
-    private void Tabs_TabStripDrop(object sender, DragEventArgs e)
-    {
-        if (!IsTabFromOtherWindow(e) || s_tabDrag is not { } drag) return;
-        drag.Window.MoveTab(drag.Tab, this, TabIndexAt(e.GetPosition(Tabs).X));
     }
 
     /// <summary>Dropped away from every window: the tab gets a window of its own where it was let go.</summary>
@@ -1135,7 +1131,10 @@ public sealed partial class MainWindow : Window
         {
             e.AcceptedOperation = DataPackageOperation.Move;
             e.DragUIOverride.Caption = "Move tab here";
-            if (_incoming is null) ShowIncomingTab(Tabs.TabItems.Count); // over the page: it lands at the end
+            // Over the tab strip the placeholder follows the pointer; over the page it stays put, at the end at first.
+            var p = e.GetPosition(Tabs);
+            if (Tabs.Visibility == Visibility.Visible && p.Y >= 0 && p.Y <= Tabs.ActualHeight) ShowIncomingTab(TabIndexAt(p.X));
+            else if (_incoming is null) ShowIncomingTab(Tabs.TabItems.Count);
             return;
         }
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
@@ -1167,6 +1166,7 @@ public sealed partial class MainWindow : Window
         if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
         {
             drag.Window.MoveTab(drag.Tab, this); // where the placeholder is
+            EndTabDrag();
             return;
         }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
