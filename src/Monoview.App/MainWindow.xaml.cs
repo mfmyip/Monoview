@@ -38,18 +38,17 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         EventHandler themeChanged = (_, _) => ApplyTheme();
         AppSettings.Changed += themeChanged;
-        // The tab strip draws its own line under the tabs, open under the active one; the document's top line would close it.
+        // Under the tabs: a gap in the selected tab's color instead of the document's top line.
         Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
         {
             DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
-            DocumentHost.Margin = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 6 : 0, 0, 0);
-            TabOutline.Visibility = Tabs.Visibility;
+            DocumentHost.Margin = new Thickness(0, Tabs.Visibility == Visibility.Visible ? TabGap.Height : 0, 0, 0);
+            TabGap.Visibility = Tabs.Visibility;
         });
         Tabs.LayoutUpdated += (_, _) =>
         {
-            UpdateTabOutline();
             // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move
-            // tabs slowly while the outline jumps; SlideTabs gives them a quick slide instead. The strip starts hidden,
+            // tabs slowly; SlideTabs gives them a quick slide instead. The strip starts hidden,
             // so its list only exists after its first layout.
             if (!_tabTransitionsCleared && FindByName(Tabs, "TabListView") is ListViewBase list)
             {
@@ -396,56 +395,24 @@ public sealed partial class MainWindow : Window
             ReadingPositions.Set(view.Document.Path, view.Viewer.CurrentPage);
     }
 
-    /// <summary>
-    /// Tabs slide to a new place in 100 ms. The active tab moves at once, so the outline
-    /// drawn around it never lags behind.
-    /// </summary>
+    /// <summary>Tabs slide to a new place, like Chrome's, when one opens, closes or is held over the strip.</summary>
     private void SlideTabs()
     {
         foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
         {
             var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(tab);
-            if (ReferenceEquals(tab, Tabs.SelectedItem))
-            {
-                visual.ImplicitAnimations = null;
-                continue;
-            }
             if (visual.ImplicitAnimations is not null || tab.ActualWidth == 0) continue; // not laid out yet: it would slide in from the left edge
             var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
             slide.Target = "Offset";
-            slide.InsertExpressionKeyFrame(1f, "this.FinalValue");
-            slide.Duration = TimeSpan.FromMilliseconds(100);
+            slide.InsertExpressionKeyFrame(1f, "this.FinalValue", EaseOut(visual.Compositor));
+            slide.Duration = SlideTime;
             var animations = visual.Compositor.CreateImplicitAnimationCollection();
             animations["Offset"] = slide;
             visual.ImplicitAnimations = animations;
         }
     }
 
-    private string? _tabOutlineData;
     private bool _tabTransitionsCleared;
-
-    // Redrawn on every layout pass (select, reorder, resize, close), so it only rebuilds when the shape moved.
-    private void UpdateTabOutline()
-    {
-        if (Tabs.Visibility != Visibility.Visible) return;
-        double w = Tabs.ActualWidth, b = Tabs.ActualHeight - 0.5;
-        string data = FormattableString.Invariant($"M 0,{b} H {w}");
-        if (Tabs.SelectedItem is TabViewItem tab && FindByName(tab, "TabContainer") is FrameworkElement box && box.ActualWidth > 0)
-        {
-            // From where layout put the tab, plus how far it's dragged: a drag's shift doesn't show up reliably in
-            // TransformToVisual, during the drag or after it.
-            var inTab = box.TransformToVisual(tab).TransformBounds(new Windows.Foundation.Rect(0, 0, box.ActualWidth, box.ActualHeight));
-            var slot = ((UIElement)VisualTreeHelper.GetParent(tab)).TransformToVisual(Tabs).TransformPoint(default);
-            double left = slot.X + tab.ActualOffset.X + inTab.Left + DraggedTabOffset(tab);
-            double x0 = left + 0.5, x1 = left + inTab.Width - 0.5, t = slot.Y + tab.ActualOffset.Y + inTab.Top + 0.5, flare = 8, top = 8;
-            data = FormattableString.Invariant($"M 0,{b} H {x0 - flare} A {flare},{flare} 0 0 0 {x0},{b - flare} V {t + top} A {top},{top} 0 0 1 {x0 + top},{t} ")
-                + FormattableString.Invariant($"H {x1 - top} A {top},{top} 0 0 1 {x1},{t + top} V {b - flare} A {flare},{flare} 0 0 0 {x1 + flare},{b} H {w}");
-        }
-        if (data == _tabOutlineData) return;
-        _tabOutlineData = data;
-        TabOutline.Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
-            typeof(Microsoft.UI.Xaml.Media.Geometry), data);
-    }
 
     private static FrameworkElement? FindByName(DependencyObject root, string name)
     {

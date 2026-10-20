@@ -85,12 +85,13 @@ public sealed partial class MainWindow
             // Through the composition layer: the tab slide (SlideTabs) already uses it, which rules out UIElement.Translation.
             ElementCompositionPreview.SetIsTranslationEnabled(t, true);
             var visual = ElementCompositionPreview.GetElementVisual(t);
+            visual.StopAnimation("Translation"); // a glide from the last drop
             visual.ImplicitAnimations = null;
             if (ReferenceEquals(t, tab)) continue;
             var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
             slide.Target = "Translation";
-            slide.InsertExpressionKeyFrame(1f, "this.FinalValue");
-            slide.Duration = TimeSpan.FromMilliseconds(100);
+            slide.InsertExpressionKeyFrame(1f, "this.FinalValue", EaseOut(visual.Compositor));
+            slide.Duration = SlideTime;
             var animations = visual.Compositor.CreateImplicitAnimationCollection();
             animations["Translation"] = slide;
             visual.ImplicitAnimations = animations;
@@ -120,7 +121,6 @@ public sealed partial class MainWindow
             double shift = i >= _dragTo && i < _dragFrom ? pitch : i <= _dragTo && i > _dragFrom ? -pitch : 0;
             Shift(_dragSlots[i].Tab, shift);
         }
-        UpdateTabOutline();
     }
 
     /// <summary>Puts the tabs in the order the drag showed (unless <paramref name="commit"/> is false) and back in their places.</summary>
@@ -130,11 +130,16 @@ public sealed partial class MainWindow
         _pressedTab = null;
         if (!_draggingTab) return;
         _draggingTab = false;
+        // The dragged tab starts from where it was let go, seen from its new place, and glides in.
+        var (_, fromLeft, fromWidth) = _dragSlots[_dragFrom];
+        var (_, toLeft, toWidth) = _dragSlots[commit ? _dragTo : _dragFrom];
+        double newLeft = _dragTo < _dragFrom || !commit ? toLeft : toLeft + toWidth - fromWidth;
+        double settle = fromLeft + _dragDx - newLeft;
         _dragDx = 0;
         foreach (var (t, _, _) in _dragSlots)
         {
             ElementCompositionPreview.GetElementVisual(t).ImplicitAnimations = null;
-            Shift(t, 0);
+            Shift(t, ReferenceEquals(t, tab) ? settle : 0);
         }
         // Move the others past the dragged tab rather than the tab itself: taking out the selected tab would switch
         // the document shown for a moment.
@@ -146,7 +151,11 @@ public sealed partial class MainWindow
             Tabs.TabItems.Insert(at, item);
         }
         _dragSlots.Clear();
-        UpdateTabOutline();
+        var visual = ElementCompositionPreview.GetElementVisual(tab);
+        var glide = visual.Compositor.CreateVector3KeyFrameAnimation();
+        glide.InsertKeyFrame(1f, Vector3.Zero, EaseOut(visual.Compositor));
+        glide.Duration = SlideTime;
+        visual.StartAnimation("Translation", glide);
         // Slides come back once the new order is laid out, so it doesn't play as a slide.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, SlideTabs);
     }
@@ -154,8 +163,12 @@ public sealed partial class MainWindow
     private static void Shift(UIElement tab, double dx) =>
         ElementCompositionPreview.GetElementVisual(tab).Properties.InsertVector3("Translation", new Vector3((float)dx, 0, 0));
 
-    /// <summary>How far the dragged tab is from its place, for the outline drawn around it.</summary>
-    private double DraggedTabOffset(TabViewItem tab) => _draggingTab && _dragSlots.Count > 0 && ReferenceEquals(_dragSlots[_dragFrom].Tab, tab) ? _dragDx : 0;
+    /// <summary>How long tabs take to slide aside, and the dropped tab to settle, as in Chrome.</summary>
+    private static readonly TimeSpan SlideTime = TimeSpan.FromMilliseconds(150);
+
+    /// <summary>Fast at first, slowing into place.</summary>
+    private static Microsoft.UI.Composition.CompositionEasingFunction EaseOut(Microsoft.UI.Composition.Compositor compositor) =>
+        compositor.CreateCubicBezierEasingFunction(new Vector2(0.2f, 0f), new Vector2(0f, 1f));
 
     // ---------------- Tearing a tab off into its own window ----------------
 
