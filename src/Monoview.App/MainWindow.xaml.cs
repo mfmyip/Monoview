@@ -1662,18 +1662,31 @@ public sealed partial class MainWindow : Window
     /// <summary>Once, at a launch where Monoview is not the default PDF app, offers to open Windows' default apps page.</summary>
     public void SuggestDefaultApp()
     {
-        var settings = AppSettings.Current;
-        if (settings.DefaultAppSuggested || AppRegistration.IsDefaultPdfApp()) return;
-        settings.DefaultAppSuggested = true;
-        AppSettings.Save();
+        if (AppSettings.Current.DefaultAppSuggested || AppRegistration.IsDefaultPdfApp()) return;
         ShowInfo("Make Monoview your default PDF app?", sticky: true);
         var choose = new Button { Content = "Choose in Settings" };
+        ErrorBar.ActionButton = choose;
+
+        // Only an answer counts: an update notice or an error can take the bar over first, and then the
+        // prompt comes back at the next launch.
+        void Answered()
+        {
+            ErrorBar.CloseButtonClick -= Closed;
+            AppSettings.Current.DefaultAppSuggested = true;
+            AppSettings.Save();
+        }
+        void Closed(InfoBar bar, object args)
+        {
+            if (ErrorBar.ActionButton == choose) Answered();
+            else ErrorBar.CloseButtonClick -= Closed;
+        }
+        ErrorBar.CloseButtonClick += Closed;
         choose.Click += (_, _) =>
         {
+            Answered();
             ErrorBar.IsOpen = false;
             _ = AppRegistration.OpenDefaultAppsSettingsAsync();
         };
-        ErrorBar.ActionButton = choose;
     }
 
     private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateInfoTimer()

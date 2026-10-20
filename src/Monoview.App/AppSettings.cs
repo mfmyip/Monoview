@@ -52,7 +52,7 @@ public sealed class AppSettings
 
     public DateTime LastUpdateCheck { get; set; }
 
-    /// <summary>Set once Monoview has offered, at one launch, to open Windows' default apps page.</summary>
+    /// <summary>Set once the user has answered the offer to open Windows' default apps page.</summary>
     public bool DefaultAppSuggested { get; set; }
 
     /// <summary>
