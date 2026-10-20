@@ -74,6 +74,12 @@ internal static class SettingsDialog
             content.Children.Add(Section("Check for updates when Monoview starts",
                 "Asks GitHub once a day if a newer version is out. It sends no personal data.", null, checkUpdates));
 
+        bool isDefault = AppRegistration.IsDefaultPdfApp();
+        var makeDefault = new Button { Content = isDefault ? "Monoview is the default" : "Make default…", IsEnabled = !isDefault };
+        makeDefault.Click += (_, _) => _ = AppRegistration.OpenDefaultAppsSettingsAsync();
+        content.Children.Add(Section("Default app for PDFs",
+            isDefault ? "Windows opens PDF files with Monoview." : "Windows asks you to confirm this in its own Settings.", null, makeDefault));
+
         var dialog = new ContentDialog
         {
             XamlRoot = root,

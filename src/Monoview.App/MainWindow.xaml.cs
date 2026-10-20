@@ -1416,7 +1416,7 @@ public sealed partial class MainWindow : Window
             CloseButtonText = "Not now",
         };
         if (await done.ShowAsync() == ContentDialogResult.Primary)
-            await Launcher.LaunchUriAsync(new Uri("ms-settings:defaultapps"));
+            await AppRegistration.OpenDefaultAppsSettingsAsync();
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e) => _ = OpenSettingsAsync();
@@ -1657,6 +1657,23 @@ public sealed partial class MainWindow : Window
         var download = new Button { Content = "Download" };
         download.Click += (_, _) => _ = Launcher.LaunchUriAsync(new Uri(update.Url));
         ErrorBar.ActionButton = download;
+    }
+
+    /// <summary>Once, at a launch where Monoview is not the default PDF app, offers to open Windows' default apps page.</summary>
+    public void SuggestDefaultApp()
+    {
+        var settings = AppSettings.Current;
+        if (settings.DefaultAppSuggested || AppRegistration.IsDefaultPdfApp()) return;
+        settings.DefaultAppSuggested = true;
+        AppSettings.Save();
+        ShowInfo("Make Monoview your default PDF app?", sticky: true);
+        var choose = new Button { Content = "Choose in Settings" };
+        choose.Click += (_, _) =>
+        {
+            ErrorBar.IsOpen = false;
+            _ = AppRegistration.OpenDefaultAppsSettingsAsync();
+        };
+        ErrorBar.ActionButton = choose;
     }
 
     private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateInfoTimer()
