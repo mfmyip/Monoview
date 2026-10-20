@@ -22,7 +22,7 @@
 
 <br>
 
-<img src="docs/images/reading-light.png" width="820" alt="Monoview showing a book chapter with the page sidebar open">
+<img src="docs/images/overview-light.png" width="820" alt="Monoview showing a four-page proposal in two-page view with page thumbnails">
 
 <br>
 
@@ -86,19 +86,19 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
 <table>
   <tr>
     <td width="50%"><img src="docs/images/markup-dark.png" alt="The markup bar with shapes, ink, a note and a text box"></td>
-    <td width="50%"><img src="docs/images/two-page-dark.png" alt="Two-page view in the dark theme"></td>
+    <td width="50%"><img src="docs/images/sign-light.png" alt="A service agreement with a signature placed on the client line"></td>
   </tr>
   <tr>
     <td><b>Markup bar.</b> Draw, add shapes, text boxes and notes, then move or resize them.</td>
-    <td><b>Two-page view.</b> Read spreads side by side, in light or dark.</td>
+    <td><b>Signatures.</b> Draw, type or import a signature, then place it with one click.</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/forms-light.png" alt="A form with a filled text field, a ticked check box and a drop-down"></td>
-    <td width="50%"><img src="docs/images/reading-light.png" alt="Reading with the page sidebar"></td>
+    <td width="50%"><img src="docs/images/live-text-light.png" alt="Search finding a word in a photographed café receipt"></td>
+    <td width="50%"><img src="docs/images/tabs-dark.png" alt="Two tabs and two-page view in the dark theme"></td>
   </tr>
   <tr>
-    <td><b>Forms.</b> Type into fields, tick boxes and pick from lists.</td>
-    <td><b>Reading.</b> Thumbnails, outline and search in one sidebar.</td>
+    <td><b>Live text.</b> Search, select and copy text in pictures and scans.</td>
+    <td><b>Dark theme and tabs.</b> Open many documents and read spreads side by side.</td>
   </tr>
 </table>
 
