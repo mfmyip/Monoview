@@ -198,7 +198,7 @@ public sealed partial class MainWindow
         return new StackPanel { Spacing = 12, Width = 216, Children = { fonts, size, color } };
     }
 
-    // ---- The color panel, as in Preview: the object's own colors, a row of brights, a grid of shades with None first ----
+    // ---- The color panel, as in Preview: a row of brights, a grid of shades with None first; the color in use is ringed ----
 
     private static readonly (string Name, MarkupColor Color)[] Brights =
     [
@@ -284,37 +284,20 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel { Spacing = 10, Width = 216 };
 
-        // The object's own colors, so one can be copied to another part, such as the fill to the border.
-        if (StyleContext() is { } context)
-        {
-            var s = context.Style;
-            (string Label, MarkupColor? Color)[] own = context.Kind switch
-            {
-                ShapeKind.Ink => [("Line", s.Stroke)],
-                ShapeKind.TextBox => [("Text", s.TextColor ?? Black), ("Border", s.Stroke), ("Fill", s.Fill)],
-                ShapeKind.Note => [("Color", s.Fill)],
-                _ => [("Border", s.Stroke), ("Fill", s.Fill)],
-            };
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            row.Children.Add(new TextBlock { Text = context.Selected ? "This object" : "This tool", FontSize = 12, Opacity = 0.7, Width = 70, VerticalAlignment = VerticalAlignment.Center });
-            foreach (var (label, color) in own)
-            {
-                var cell = Cell(color, $"{label}: {(color is { } c ? MarkupPalette.SettingValue(c) : "none")}", 22, label == role, enabled: color is not null);
-                row.Children.Add(new StackPanel { Spacing = 2, Children = { cell, new TextBlock { Text = label, FontSize = 10, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center } } });
-            }
-            panel.Children.Add(row);
-        }
+        // Ring only the first cell in the color in use: black and white are in both grids.
+        bool ringed = false;
+        bool Ring(MarkupColor color) => !ringed && color == current && (ringed = true);
 
         var brights = Grid12(18);
         for (int i = 0; i < Brights.Length; i++)
-            Place(brights, i, Cell(Brights[i].Color, Brights[i].Name, 18, Brights[i].Color == current));
+            Place(brights, i, Cell(Brights[i].Color, Brights[i].Name, 18, Ring(Brights[i].Color)));
         panel.Children.Add(brights);
 
         var shades = Grid12(18);
         for (int i = 0; i < Shades.Length; i++)
             Place(shades, i, i == 0 && noneAllowed is { } allowed
                 ? Cell(null, allowed ? "None" : "None is off: a shape needs a border or a fill", 18, current is null, allowed)
-                : Cell(Shades[i], MarkupPalette.SettingValue(Shades[i]), 18, Shades[i] == current));
+                : Cell(Shades[i], MarkupPalette.SettingValue(Shades[i]), 18, Ring(Shades[i])));
         panel.Children.Add(shades);
         if (noneAllowed == false)
             panel.Children.Add(new TextBlock { Text = "A shape needs a border or a fill, so None is off.", FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
