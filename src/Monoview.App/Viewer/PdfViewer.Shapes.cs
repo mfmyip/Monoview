@@ -141,6 +141,14 @@ public sealed partial class PdfViewer
                 Selected = shapes[^1];
                 if (_views.TryGetValue(index, out var view)) RefreshOverlay(view);
             }
+            // An edit can change the selected object's size, text or style, as when a text box grows to fit: take it
+            // as it is now, so its handles and the style bar follow.
+            else if (Selected is { } old && old.PageIndex == index
+                && shapes.FirstOrDefault(s => s.AnnotIndex == old.AnnotIndex && s.Kind == old.Kind) is { } now && (now.Rect != old.Rect || now.Text != old.Text || now.Style != old.Style))
+            {
+                Selected = now;
+                if (_views.TryGetValue(index, out var view)) RefreshOverlay(view);
+            }
         }
         catch (Exception ex) when (ex is ObjectDisposedException or PdfException)
         {
@@ -479,6 +487,12 @@ public sealed partial class PdfViewer
         RefreshOverlay(view);
     }
 
+    /// <summary>Lets go of <paramref name="shape"/> if it's selected, before it's deleted: its place in the page's list goes to the next one.</summary>
+    private void Forget(Shape shape)
+    {
+        if (Selected is { } s && s.PageIndex == shape.PageIndex && s.AnnotIndex == shape.AnnotIndex) Selected = null;
+    }
+
     /// <summary>Gives the selected object <paramref name="style"/>; it comes back selected, in front of the others.</summary>
     public async Task RestyleSelectedAsync(ShapeStyle style)
     {
@@ -591,6 +605,7 @@ public sealed partial class PdfViewer
         if (editing.Existing is { } box)
         {
             if (text == box.Text) return;
+            if (text.Length == 0) Forget(box);
             _ = EditAsync(page, () => text.Length == 0 ? _doc.RemoveShapeAsync(box) : _doc.SetShapeTextAsync(box, text), select: false);
         }
         else if (text.Length > 0)
@@ -616,7 +631,10 @@ public sealed partial class PdfViewer
         {
             string text = box.Text.TrimEnd();
             if (deleted || (isNew && text.Length == 0))
+            {
+                Forget(note);
                 _ = EditAsync(note.PageIndex, () => _doc.RemoveShapeAsync(note), select: false);
+            }
             else if (text != note.Text)
                 _ = EditAsync(note.PageIndex, () => _doc.SetShapeTextAsync(note, text), select: false);
         };
