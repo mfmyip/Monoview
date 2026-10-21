@@ -573,6 +573,7 @@ public sealed partial class PdfViewer
         Canvas.SetTop(_textEditor, _top[page] + shown.Top * _h[page]);
         _editing = (page, shown, existing);
         _textEditor.LostFocus += (_, _) => CommitTextEditor();
+        _textEditor.SizeChanged += (_, _) => { if (_views.TryGetValue(page, out var view)) RefreshOverlay(view); };
         _textEditor.KeyDown += (_, e) =>
         {
             if (e.Key != Windows.System.VirtualKey.Escape) return;
@@ -651,7 +652,13 @@ public sealed partial class PdfViewer
 
         NormRect shown;
         ShapeKind kind;
-        if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, kind) = (drag.Now, drag.Shape.Kind);
+        if (_textEditor is { } editor && _editing is { } editing && editing.Page == view.Index)
+        {
+            // While typing, the handles follow the text field as it grows a line at a time.
+            float bottom = (float)Math.Min(1, editing.Shown.Top + Math.Max(editing.Shown.Height, editor.ActualHeight / h));
+            (shown, kind) = (editing.Shown with { Bottom = bottom }, ShapeKind.TextBox);
+        }
+        else if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, kind) = (drag.Now, drag.Shape.Kind);
         else if (Selected is { } shape && shape.PageIndex == view.Index) (shown, kind) = (PageRotation.ToView(shape.Rect, _rotation), shape.Kind);
         else return;
 
