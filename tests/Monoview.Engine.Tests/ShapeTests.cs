@@ -156,10 +156,10 @@ public class ShapeTests
     }
 
     [Fact]
-    public async Task Text_box_wraps_long_text_onto_more_lines()
+    public async Task Text_box_wraps_long_text_and_breaks_long_words_inside_the_box()
     {
         using var doc = await PdfDocument.OpenAsync(SamplePdf.Path);
-        await doc.AddTextBoxAsync(0, Box, string.Join(" ", Enumerable.Repeat("word", 30)), new ShapeStyle(null, FontSize: 14));
+        await doc.AddTextBoxAsync(0, Box, string.Join(" ", Enumerable.Repeat("word", 30)) + " " + new string('w', 80), new ShapeStyle(null, FontSize: 14));
         var bmp = await Render(doc);
         Assert.True(InkIn(bmp, new NormRect(0.2f, 0.56f, 0.6f, 0.6f)) > 50, "a later line is drawn");
         Assert.Equal(0, InkIn(bmp, new NormRect(0.61f, 0.5f, 0.9f, 0.6f)));

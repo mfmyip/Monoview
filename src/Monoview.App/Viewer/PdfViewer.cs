@@ -923,7 +923,7 @@ public sealed partial class PdfViewer : UserControl
             AutoScrollWhileSelecting(e.GetCurrentPoint(_scroller).Position);
             return;
         }
-        if (HandleFormMove(point.Position) || HandleShapeMove(point.Position)) return;
+        if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
 
         if (LinkAt(point.Position) is not null)
         {

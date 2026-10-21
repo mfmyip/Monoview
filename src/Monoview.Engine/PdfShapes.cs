@@ -77,7 +77,8 @@ public sealed partial class PdfDocument
         IntPtr bitmap = FPDFBitmap_CreateEx(width, height, BitmapFormatBgra, pixels.AddrOfPinnedObject(), width * 4);
         try
         {
-            var bounds = BeginFramedDrawing(annot, pageIndex, rect, out var m, out double sx, out double sy);
+            var bounds = PlaceRect(pageIndex, rect, out var m);
+            BeginFramedDrawing(annot, bounds, out double sx, out double sy);
             var frame = AppearanceFrame;
             IntPtr image = FPDFPageObj_NewImageObj(Doc.__Instance);
             if (FPDFImageObj_SetBitmap(IntPtr.Zero, 0, image, bitmap) == 0)
@@ -172,16 +173,9 @@ public sealed partial class PdfDocument
         foreach (var p in strokes.Where(p => p.Length > 0))
         {
             s.Append(Invariant($"{p[0].X:0.##} {p[0].Y:0.##} m\n"));
-            if (p.Length == 1)
-                s.Append(Invariant($"{p[0].X:0.##} {p[0].Y:0.##} l\n"));
-            else if (p.Length <= 3) // a line or an arrowhead: keep its corners
-                foreach (var q in p.Skip(1)) s.Append(Invariant($"{q.X:0.##} {q.Y:0.##} l\n"));
-            else // Catmull-Rom through every point, as Bezier curves
-                for (int i = 0; i < p.Length - 1; i++)
-                {
-                    PointF a = p[Math.Max(0, i - 1)], b = p[i], d = p[i + 1], e = p[Math.Min(p.Length - 1, i + 2)];
-                    s.Append(Invariant($"{b.X + (d.X - a.X) / 6:0.##} {b.Y + (d.Y - a.Y) / 6:0.##} {d.X - (e.X - b.X) / 6:0.##} {d.Y - (e.Y - b.Y) / 6:0.##} {d.X:0.##} {d.Y:0.##} c\n"));
-                }
+            if (p.Length == 1) s.Append(Invariant($"{p[0].X:0.##} {p[0].Y:0.##} l\n"));
+            foreach (var (c1, c2, end) in InkCurve.Segments(p.Select(q => ((double)q.X, (double)q.Y)).ToList()))
+                s.Append(Invariant($"{c1.X:0.##} {c1.Y:0.##} {c2.X:0.##} {c2.Y:0.##} {end.X:0.##} {end.Y:0.##} c\n"));
             s.Append("S\n");
         }
         FPDFAnnot_SetAPText(annot, AppearanceNormal, Encoding.Unicode.GetBytes(s + "\0"));
@@ -224,36 +218,21 @@ public sealed partial class PdfDocument
         }
     }
 
-    /// <summary>Draws a text box's fill, border and wrapped lines of text into its stamp, replacing what was there.</summary>
+    /// <summary>
+    /// Draws a text box's fill, border and wrapped lines of text into its stamp, replacing what was there. A box too
+    /// short for its text grows downward, as shown, to fit it, as in Preview.
+    /// </summary>
     private void DrawTextBox(IntPtr annot, int pageIndex, NormRect rect, string text, ShapeStyle style)
     {
         for (int i = FPDFAnnot_GetObjectCount(annot) - 1; i >= 0; i--)
             FPDFAnnot_RemoveObject(annot, i);
-        var bounds = BeginFramedDrawing(annot, pageIndex, rect, out var m, out double sx, out double sy);
-        // Lay out in the box as shown, in points from its bottom-left corner; (a..f) maps that into the frame.
+        PlaceRect(pageIndex, rect, out var m);
+        // Lay out in the box as shown, in points from its bottom-left corner.
         double width = Math.Sqrt(m.A * m.A + m.B * m.B), height = Math.Sqrt(m.C * m.C + m.D * m.D);
-        var frame = AppearanceFrame;
-        double a = m.A / width * sx, b = m.B / width * sy, c = m.C / height * sx, d = m.D / height * sy;
-        double e = frame.Left + (m.E - bounds.Left) * sx, f = frame.Bottom + (m.F - bounds.Bottom) * sy;
-        void Add(IntPtr obj)
-        {
-            FPDFPageObj_Transform(obj, a, b, c, d, e, f);
-            if (FPDFAnnot_AppendObject(annot, obj) == 0) throw new PdfException("PDFium could not draw the text box.");
-        }
-
         float border = style.Stroke is null ? 0 : style.LineWidth;
-        if (style.Fill is not null || style.Stroke is not null)
-        {
-            IntPtr box = FPDFPageObj_CreateNewRect(border / 2, border / 2, (float)Math.Max(0, width - border), (float)Math.Max(0, height - border));
-            if (style.Fill is { } fill) FPDFPageObj_SetFillColor(box, fill.R, fill.G, fill.B, 255);
-            if (style.Stroke is { } stroke)
-            {
-                FPDFPageObj_SetStrokeColor(box, stroke.R, stroke.G, stroke.B, 255);
-                FPDFPageObj_SetStrokeWidth(box, border);
-            }
-            FPDFPath_SetDrawMode(box, style.Fill is null ? 0 : 1, style.Stroke is null ? 0 : 1);
-            Add(box);
-        }
+        // Spacing as Monoview's editor shows it, in Arial, Times New Roman and Courier New, so typing and the drawn
+        // box line up: lines 1.15 sizes apart, the first baseline 0.9 sizes below the padding.
+        float size = style.FontSize, pad = 2 + border;
 
         IntPtr font = FPDFText_LoadStandardFont(Doc.__Instance, style.Font switch
         {
@@ -263,17 +242,51 @@ public sealed partial class PdfDocument
         });
         try
         {
-            var color = style.TextColor ?? Black;
-            float size = style.FontSize, pad = 2 + border;
-            FPDFFont_GetAscent(font, size, out float ascent);
             IntPtr Line(string s)
             {
                 IntPtr obj = FPDFPageObj_CreateTextObj(Doc.__Instance, font, size);
                 FPDFText_SetText(obj, Encoding.Unicode.GetBytes(s + "\0"));
                 return obj;
             }
-            double baseline = height - pad - ascent;
-            foreach (string line in Wrap(text, width - 2 * pad, Line))
+            var lines = Wrap(text, width - 2 * pad, Line);
+            double needed = 2 * pad + lines.Count * size * 1.15;
+            if (needed > height)
+            {
+                // Keep the top edge as shown and move the bottom one down.
+                double grow = needed / height;
+                m = (m.A, m.B, m.C * grow, m.D * grow, m.E + m.C * (1 - grow), m.F + m.D * (1 - grow));
+                height = needed;
+            }
+            double[] xs = [m.E, m.E + m.A, m.E + m.C, m.E + m.A + m.C], ys = [m.F, m.F + m.B, m.F + m.D, m.F + m.B + m.D];
+            var bounds = new RectF((float)xs.Min(), (float)ys.Max(), (float)xs.Max(), (float)ys.Min());
+
+            // (a..f) maps the box's points into the stamp's frame.
+            BeginFramedDrawing(annot, bounds, out double sx, out double sy);
+            var frame = AppearanceFrame;
+            double a = m.A / width * sx, b = m.B / width * sy, c = m.C / height * sx, d = m.D / height * sy;
+            double e = frame.Left + (m.E - bounds.Left) * sx, f = frame.Bottom + (m.F - bounds.Bottom) * sy;
+            void Add(IntPtr obj)
+            {
+                FPDFPageObj_Transform(obj, a, b, c, d, e, f);
+                if (FPDFAnnot_AppendObject(annot, obj) == 0) throw new PdfException("PDFium could not draw the text box.");
+            }
+
+            if (style.Fill is not null || style.Stroke is not null)
+            {
+                IntPtr box = FPDFPageObj_CreateNewRect(border / 2, border / 2, (float)Math.Max(0, width - border), (float)Math.Max(0, height - border));
+                if (style.Fill is { } fill) FPDFPageObj_SetFillColor(box, fill.R, fill.G, fill.B, 255);
+                if (style.Stroke is { } stroke)
+                {
+                    FPDFPageObj_SetStrokeColor(box, stroke.R, stroke.G, stroke.B, 255);
+                    FPDFPageObj_SetStrokeWidth(box, border);
+                }
+                FPDFPath_SetDrawMode(box, style.Fill is null ? 0 : 1, style.Stroke is null ? 0 : 1);
+                Add(box);
+            }
+
+            var color = style.TextColor ?? Black;
+            double baseline = height - pad - 0.9 * size;
+            foreach (string line in lines)
             {
                 if (line.Length > 0)
                 {
@@ -282,17 +295,20 @@ public sealed partial class PdfDocument
                     FPDFPageObj_Transform(obj, 1, 0, 0, 1, pad, baseline);
                     Add(obj);
                 }
-                baseline -= size * 1.2;
+                baseline -= size * 1.15;
             }
+            FPDFAnnot_SetRect(annot, ref bounds);
         }
         finally
         {
             FPDFFont_Close(font);
         }
-        FPDFAnnot_SetRect(annot, ref bounds);
     }
 
-    /// <summary>Breaks text into lines no wider than <paramref name="width"/> points, at spaces and at line breaks.</summary>
+    /// <summary>
+    /// Breaks text into lines no wider than <paramref name="width"/> points, at spaces and at line breaks. A word
+    /// wider than a line is broken between letters, as the editor does.
+    /// </summary>
     private static List<string> Wrap(string text, double width, Func<string, IntPtr> measure)
     {
         double Width(string s)
@@ -309,12 +325,22 @@ public sealed partial class PdfDocument
             foreach (string word in paragraph.Split(' '))
             {
                 string longer = line.Length == 0 ? word : line + " " + word;
-                if (line.Length > 0 && Width(longer) > width)
+                if (Width(longer) <= width + 0.5) // the editor rounds in favour of fitting; so do we
                 {
-                    lines.Add(line);
-                    line = word;
+                    line = longer;
+                    continue;
                 }
-                else line = longer;
+                if (line.Length > 0) lines.Add(line);
+                line = "";
+                foreach (char c in word)
+                {
+                    if (line.Length > 0 && Width(line + c) > width + 0.5)
+                    {
+                        lines.Add(line);
+                        line = "";
+                    }
+                    line += c;
+                }
             }
             lines.Add(line);
         }
@@ -477,18 +503,15 @@ public sealed partial class PdfDocument
 
     /// <summary>
     /// Readies a stamp to draw into: it gets its frame from the rect when objects are added, so use the fixed frame,
-    /// then set the real rect after drawing. PDFium maps the frame onto the rect from then on. Returns the real rect
-    /// in page space, the matrix that places the box upright as shown, and the scale from page space to the frame.
+    /// then set the real rect, <paramref name="bounds"/>, after drawing. PDFium maps the frame onto the rect from then
+    /// on. Gives the scale from page space to the frame.
     /// </summary>
-    private RectF BeginFramedDrawing(IntPtr annot, int pageIndex, NormRect rect,
-        out (double A, double B, double C, double D, double E, double F) matrix, out double sx, out double sy)
+    private static void BeginFramedDrawing(IntPtr annot, RectF bounds, out double sx, out double sy)
     {
         var frame = AppearanceFrame;
         FPDFAnnot_SetRect(annot, ref frame);
-        var bounds = PlaceRect(pageIndex, rect, out matrix);
         sx = (frame.Right - frame.Left) / (bounds.Right - bounds.Left);
         sy = (frame.Top - frame.Bottom) / (bounds.Top - bounds.Bottom);
-        return bounds;
     }
 
     private static List<PointF[]> ReadInk(IntPtr annot)
@@ -598,7 +621,6 @@ public sealed partial class PdfDocument
     [DllImport("pdfium", CharSet = CharSet.Ansi)] private static extern uint FPDFAnnot_GetStringValue(IntPtr annot, string key, [In, Out] byte[]? buffer, uint length);
     [DllImport("pdfium", CharSet = CharSet.Ansi)] private static extern IntPtr FPDFText_LoadStandardFont(IntPtr document, string font);
     [DllImport("pdfium")] private static extern void FPDFFont_Close(IntPtr font);
-    [DllImport("pdfium")] private static extern int FPDFFont_GetAscent(IntPtr font, float size, out float ascent);
     [DllImport("pdfium")] private static extern IntPtr FPDFPageObj_CreateTextObj(IntPtr document, IntPtr font, float size);
     [DllImport("pdfium")] private static extern int FPDFText_SetText(IntPtr textObject, byte[] text);
     [DllImport("pdfium")] private static extern IntPtr FPDFPageObj_CreateNewRect(float x, float y, float w, float h);

@@ -30,7 +30,10 @@ public sealed partial class PdfViewer
     private readonly HashSet<int> _shapesLoading = new();
     private readonly InputCursor _placeCursor = InputSystemCursor.Create(InputSystemCursorShape.Cross);
     private readonly InputCursor _moveCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeAll);
-    private readonly InputCursor _resizeCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast);
+    private readonly InputCursor _resizeNwSe = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast);
+    private readonly InputCursor _resizeNeSw = InputSystemCursor.Create(InputSystemCursorShape.SizeNortheastSouthwest);
+    private readonly InputCursor _resizeWe = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+    private readonly InputCursor _resizeNs = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthSouth);
     private ShapeDrag? _drag;
     private Drawing? _drawing;
     private int? _selectNewestOn;
@@ -38,7 +41,7 @@ public sealed partial class PdfViewer
     private MarkupTool _tool;
 
     /// <summary>A shape being dragged: where the pointer went down, the rect it started at and where it is now, as shown.</summary>
-    private sealed record ShapeDrag(Shape Shape, bool Resize, (double X, double Y) Start, NormRect From)
+    private sealed record ShapeDrag(Shape Shape, Handle? Resize, (double X, double Y) Start, NormRect From)
     {
         public NormRect Now { get; set; } = From;
     }
@@ -167,14 +170,39 @@ public sealed partial class PdfViewer
         return shapes.LastOrDefault(s => s.Rect.Contains(x, y));
     }
 
-    private bool OnResizeHandle(Shape shape, Point p)
+    /// <summary>A resize handle, by the edges it moves: -1 for left or top, 1 for right or bottom, 0 for neither.</summary>
+    private readonly record struct Handle(int X, int Y);
+
+    private static readonly Handle[] Corners = [new(-1, -1), new(1, -1), new(1, 1), new(-1, 1)];
+    private static readonly Handle[] AllHandles = [.. Corners, new(0, -1), new(1, 0), new(0, 1), new(-1, 0)];
+
+    /// <summary>Preview's handles: the corners and edge middles. Pictures keep their shape, so corners only; notes keep their size.</summary>
+    private static Handle[] HandlesFor(ShapeKind kind) => kind switch
     {
-        if (shape.Kind == ShapeKind.Note) return false; // notes keep their icon size
+        ShapeKind.Note => [],
+        ShapeKind.Stamp => Corners,
+        _ => AllHandles,
+    };
+
+    /// <summary>Where <paramref name="handle"/> sits on <paramref name="shown"/>, in pixels from the page's corner.</summary>
+    private static Point HandlePoint(NormRect shown, Handle handle, double w, double h) => new(
+        (handle.X < 0 ? shown.Left : handle.X > 0 ? shown.Right : (shown.Left + shown.Right) / 2) * w,
+        (handle.Y < 0 ? shown.Top : handle.Y > 0 ? shown.Bottom : (shown.Top + shown.Bottom) / 2) * h);
+
+    private Handle? HandleAt(Shape shape, Point p)
+    {
         var shown = PageRotation.ToView(shape.Rect, _rotation);
         int page = shape.PageIndex;
-        double right = _left[page] + shown.Right * _w[page], bottom = _top[page] + shown.Bottom * _h[page];
-        return Math.Abs(p.X - right) <= HandleSize && Math.Abs(p.Y - bottom) <= HandleSize;
+        foreach (var handle in HandlesFor(shape.Kind))
+        {
+            var at = HandlePoint(shown, handle, _w[page], _h[page]);
+            if (Math.Abs(p.X - _left[page] - at.X) <= HandleSize && Math.Abs(p.Y - _top[page] - at.Y) <= HandleSize) return handle;
+        }
+        return null;
     }
+
+    private InputCursor CursorFor(Handle handle) =>
+        handle.X == 0 ? _resizeNs : handle.Y == 0 ? _resizeWe : handle.X == handle.Y ? _resizeNwSe : _resizeNeSw;
 
     // ---- Pointer hooks, called first by the viewer's pointer handlers; true when they took the event ----
 
@@ -204,7 +232,8 @@ public sealed partial class PdfViewer
             return true;
         }
 
-        var hit = Selected is { } selected && OnResizeHandle(selected, p) ? selected : ShapeAt(p);
+        var handle = Selected is { } selected ? HandleAt(selected, p) : null;
+        var hit = handle is null ? ShapeAt(p) : Selected;
         if (hit is null)
         {
             if (Selected is null) return false;
@@ -214,19 +243,22 @@ public sealed partial class PdfViewer
         }
         Selected = hit;
         var shown = PageRotation.ToView(hit.Rect, _rotation);
-        _drag = new ShapeDrag(hit, OnResizeHandle(hit, p), ToShownCoords(hit.PageIndex, p), shown);
+        _drag = new ShapeDrag(hit, handle, ToShownCoords(hit.PageIndex, p), shown);
         _surface.CapturePointer(e.Pointer);
         _scroller.Focus(FocusState.Pointer);
         RefreshAllOverlays();
         return true;
     }
 
-    private bool HandleShapeMove(Point p)
+    private bool HandleShapeMove(Point p, PointerRoutedEventArgs e)
     {
         if (_drawing is { } drawing)
         {
             var point = ToShownCoords(drawing.Page, p);
-            if (drawing.Tool == MarkupTool.Ink) drawing.Points.Add(point);
+            // Freehand takes every sample the pen or mouse gave since the last event, not just the newest.
+            if (drawing.Tool == MarkupTool.Ink)
+                foreach (var sample in e.GetIntermediatePoints(_surface).OrderBy(s => s.Timestamp))
+                    drawing.Points.Add(ToShownCoords(drawing.Page, sample.Position));
             else if (drawing.Points.Count == 1) drawing.Points.Add(point);
             else drawing.Points[^1] = point;
             if (_views.TryGetValue(drawing.Page, out var view)) RefreshOverlay(view);
@@ -238,12 +270,22 @@ public sealed partial class PdfViewer
             var (x, y) = ToShownCoords(page, p);
             double dx = x - drag.Start.X, dy = y - drag.Start.Y;
             var from = drag.From;
-            if (drag.Resize)
+            if (drag.Resize is { } edges)
             {
-                double width = Math.Clamp(from.Width + dx, 0.01, 1 - from.Left);
-                // Pictures keep their shape; the corner of anything else follows the pointer freely.
-                double height = drag.Shape.Kind == ShapeKind.Stamp ? width * from.Height / from.Width : Math.Clamp(from.Height + dy, 0.005, 1 - from.Top);
-                drag.Now = new NormRect(from.Left, from.Top, (float)(from.Left + width), (float)Math.Min(1, from.Top + height));
+                // The handle's edges follow the pointer; the opposite edges stay put.
+                const double min = 0.005;
+                double left = from.Left, top = from.Top, right = from.Right, bottom = from.Bottom;
+                if (edges.X < 0) left = Math.Clamp(left + dx, 0, right - min);
+                if (edges.X > 0) right = Math.Clamp(right + dx, left + min, 1);
+                if (edges.Y < 0) top = Math.Clamp(top + dy, 0, bottom - min);
+                if (edges.Y > 0) bottom = Math.Clamp(bottom + dy, top + min, 1);
+                if (drag.Shape.Kind == ShapeKind.Stamp) // pictures keep their shape: the height follows the width
+                {
+                    double height = (right - left) * from.Height / from.Width;
+                    if (edges.Y < 0) top = Math.Max(0, bottom - height);
+                    else bottom = Math.Min(1, top + height);
+                }
+                drag.Now = new NormRect((float)left, (float)top, (float)right, (float)bottom);
             }
             else
             {
@@ -255,7 +297,7 @@ public sealed partial class PdfViewer
         }
 
         InputCursor? cursor = PendingStamp is not null || _tool != MarkupTool.Select ? _placeCursor
-            : Selected is { } selected && OnResizeHandle(selected, p) ? _resizeCursor
+            : Selected is { } selected && HandleAt(selected, p) is { } handle ? CursorFor(handle)
             : ShapeAt(p) is not null ? _moveCursor
             : null;
         if (cursor is null) return false;
@@ -419,6 +461,13 @@ public sealed partial class PdfViewer
 
     private (int Page, NormRect Shown, Shape? Existing)? _editing;
 
+    /// <summary>
+    /// Arial loaded from its file. With Arial Narrow installed, a TextBox asked for "Arial" by name draws the narrow
+    /// face, as it ignores FontStretch, so typing would wrap differently from the drawn box.
+    /// </summary>
+    private static readonly string ArialFile =
+        "ms-appx:///" + System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "arial.ttf").Replace('\\', '/') + "#Arial, Arial";
+
     /// <summary>Puts a text field over <paramref name="shown"/> on <paramref name="page"/>; it's saved when it loses focus.</summary>
     private void OpenTextEditor(int page, NormRect shown, Shape? existing)
     {
@@ -426,22 +475,35 @@ public sealed partial class PdfViewer
         double k = _zoom * 96 / 72;
         var style = existing?.Style ?? StyleFor(ShapeKind.TextBox);
         static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        double border = style.Stroke is null ? 0 : style.LineWidth * k;
+        // Laid out as the engine draws the box (border, padding, font and size), and opaque so the old drawing doesn't
+        // show through. A box with no border gets a thin accent line while typing, so its edges can be seen.
+        var (borderBrush, border) = style.Stroke is { } stroke
+            ? (Brush(stroke), style.LineWidth * k)
+            : ((Brush)new SolidColorBrush(SelectionColor() with { A = 0xFF }), 1.0);
+        var background = Brush(style.Fill ?? new MarkupColor(255, 255, 255));
+        var foreground = Brush(style.TextColor ?? new MarkupColor(0, 0, 0));
         _textEditor = new TextBox
         {
             Text = existing?.Text ?? "",
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            FontSize = Math.Max(8, style.FontSize * k),
-            FontFamily = new FontFamily(style.Font switch { TextFont.Times => "Times New Roman", TextFont.Courier => "Courier New", _ => "Arial" }),
-            Foreground = Brush(style.TextColor ?? new MarkupColor(0, 0, 0)),
-            Background = style.Fill is { } fill ? Brush(fill) : new SolidColorBrush(Windows.UI.Color.FromArgb(0x20, 0, 120, 215)),
-            BorderBrush = style.Stroke is { } stroke ? Brush(stroke) : null,
-            BorderThickness = new Thickness(border),
+            FontSize = Math.Max(1, style.FontSize * k),
+            FontFamily = new FontFamily(style.Font switch { TextFont.Times => "Times New Roman", TextFont.Courier => "Courier New", _ => ArialFile }),
             Width = Math.Max(40, shown.Width * _w[page]),
+            MinWidth = 0,
             MinHeight = Math.Max(24, shown.Height * _h[page]),
-            Padding = new Thickness(2 * k),
+            BorderThickness = new Thickness(border),
+            Padding = new Thickness(Math.Max(0, 2 * k - (style.Stroke is null ? border : 0))),
+            CornerRadius = new CornerRadius(0),
         };
+        // The theme's hover and focused looks would replace these, so set those too.
+        foreach (string state in new[] { "", "PointerOver", "Focused" })
+        {
+            _textEditor.Resources["TextControlBackground" + state] = background;
+            _textEditor.Resources["TextControlForeground" + state] = foreground;
+            _textEditor.Resources["TextControlBorderBrush" + state] = borderBrush;
+        }
+        _textEditor.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(border);
         Canvas.SetLeft(_textEditor, _left[page] + shown.Left * _w[page]);
         Canvas.SetTop(_textEditor, _top[page] + shown.Top * _h[page]);
         _editing = (page, shown, existing);
@@ -519,25 +581,32 @@ public sealed partial class PdfViewer
             view.Overlay.Children.Add(Preview(drawing, w, h));
 
         NormRect shown;
-        bool resizable;
-        if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, resizable) = (drag.Now, drag.Shape.Kind != ShapeKind.Note);
-        else if (Selected is { } shape && shape.PageIndex == view.Index) (shown, resizable) = (PageRotation.ToView(shape.Rect, _rotation), shape.Kind != ShapeKind.Note);
+        ShapeKind kind;
+        if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, kind) = (drag.Now, drag.Shape.Kind);
+        else if (Selected is { } shape && shape.PageIndex == view.Index) (shown, kind) = (PageRotation.ToView(shape.Rect, _rotation), shape.Kind);
         else return;
 
+        // As in Preview: dots at the corners and edge middles, and no frame. A note has no handles, so it gets a frame.
         var accent = new SolidColorBrush(SelectionColor() with { A = 0xFF });
-        var frame = new Rectangle
+        if (kind == ShapeKind.Note)
         {
-            Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3],
-            Width = Math.Max(1, shown.Width * w), Height = Math.Max(1, shown.Height * h),
-        };
-        Canvas.SetLeft(frame, shown.Left * w);
-        Canvas.SetTop(frame, shown.Top * h);
-        view.Overlay.Children.Add(frame);
-        if (!resizable) return;
-        var handle = new Rectangle { Fill = accent, Width = HandleSize, Height = HandleSize, RadiusX = 2, RadiusY = 2 };
-        Canvas.SetLeft(handle, shown.Right * w - HandleSize / 2);
-        Canvas.SetTop(handle, shown.Bottom * h - HandleSize / 2);
-        view.Overlay.Children.Add(handle);
+            var frame = new Rectangle
+            {
+                Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3],
+                Width = Math.Max(1, shown.Width * w), Height = Math.Max(1, shown.Height * h),
+            };
+            Canvas.SetLeft(frame, shown.Left * w);
+            Canvas.SetTop(frame, shown.Top * h);
+            view.Overlay.Children.Add(frame);
+        }
+        foreach (var handle in HandlesFor(kind))
+        {
+            var at = HandlePoint(shown, handle, w, h);
+            var dot = new Ellipse { Width = 9, Height = 9, Fill = accent, Stroke = new SolidColorBrush(Microsoft.UI.Colors.White), StrokeThickness = 1.5 };
+            Canvas.SetLeft(dot, at.X - 4.5);
+            Canvas.SetTop(dot, at.Y - 4.5);
+            view.Overlay.Children.Add(dot);
+        }
     }
 
     /// <summary>What the tool would draw, in the current style, while the pointer is still down.</summary>
@@ -565,6 +634,16 @@ public sealed partial class PdfViewer
                 Canvas.SetLeft(shape, box.Left * w);
                 Canvas.SetTop(shape, box.Top * h);
                 return shape;
+            case MarkupTool.Ink:
+                // The same curve the page gets once the pen lifts.
+                var figure = new PathFigure { StartPoint = Px(drawing.Start) };
+                foreach (var (c1, c2, end) in InkCurve.Segments(drawing.Points))
+                    figure.Segments.Add(new BezierSegment { Point1 = Px(c1), Point2 = Px(c2), Point3 = Px(end) });
+                return new Microsoft.UI.Xaml.Shapes.Path
+                {
+                    Data = new PathGeometry { Figures = { figure } }, Stroke = stroke, StrokeThickness = thickness,
+                    StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
             default:
                 var line = new Polyline { Stroke = stroke, StrokeThickness = thickness, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
                 IEnumerable<(double X, double Y)> points = drawing.Tool == MarkupTool.Ink ? drawing.Points : [drawing.Start, drawing.End];

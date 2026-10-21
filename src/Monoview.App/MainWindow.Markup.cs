@@ -109,17 +109,17 @@ public sealed partial class MainWindow
         (_borderIcon, _borderSlash) = (new Rectangle { Width = 13, Height = 13, RadiusX = 2.5, RadiusY = 2.5, StrokeThickness = 2.5 }, Slash());
         _borderLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         _borderButton = BarButton("Border color", IconAndLabel(_borderIcon, _borderSlash, _borderLabel),
-            PanelFlyout(flyout => StyleContext() is { } c ? ColorPanel(flyout, c.Kind == ShapeKind.Ink ? "Line" : "Border", c.Style.Stroke,
-                c.Kind == ShapeKind.Ink ? null : !(c.Kind is ShapeKind.Rectangle or ShapeKind.Ellipse && c.Style.Fill is null),
-                color => ChangeStyle(s => s with { Stroke = color })) : new Grid()));
+            PanelFlyout(flyout => StyleContext() is { } c
+                ? ColorPanel(flyout, c.Style.Stroke, hasNone: c.Kind != ShapeKind.Ink, color => ChangeStyle(s => s with { Stroke = color }))
+                : new Grid()));
 
         (_fillIcon, _fillSlash) = (new Rectangle { Width = 14, Height = 14, RadiusX = 2.5, RadiusY = 2.5, StrokeThickness = 1 }, Slash());
         _fillIcon.Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 138, 138, 138));
         _fillLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         _fillButton = BarButton("Fill color", IconAndLabel(_fillIcon, _fillSlash, _fillLabel),
-            PanelFlyout(flyout => StyleContext() is { } c ? ColorPanel(flyout, c.Kind == ShapeKind.Note ? "Color" : "Fill", c.Style.Fill,
-                c.Kind == ShapeKind.Note ? null : !(c.Kind is ShapeKind.Rectangle or ShapeKind.Ellipse && c.Style.Stroke is null),
-                color => ChangeStyle(s => s with { Fill = color })) : new Grid()));
+            PanelFlyout(flyout => StyleContext() is { } c
+                ? ColorPanel(flyout, c.Style.Fill, hasNone: c.Kind != ShapeKind.Note, color => ChangeStyle(s => s with { Fill = color }))
+                : new Grid()));
 
         // Aa: font, size and text color.
         _textBar = new Rectangle { Width = 16, Height = 3, RadiusX = 1, RadiusY = 1 };
@@ -194,7 +194,7 @@ public sealed partial class MainWindow
         };
         var swatch = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(3), Background = Brush(style.TextColor ?? Black) };
         var color = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { swatch, new TextBlock { Text = "Text color" } } } };
-        color.Click += (_, _) => flyout.Content = ColorPanel(flyout, "Text", style.TextColor ?? Black, null, c => ChangeStyle(s => s with { TextColor = c }));
+        color.Click += (_, _) => flyout.Content = ColorPanel(flyout, style.TextColor ?? Black, hasNone: false, c => ChangeStyle(s => s with { TextColor = c }));
         return new StackPanel { Spacing = 12, Width = 216, Children = { fonts, size, color } };
     }
 
@@ -235,11 +235,8 @@ public sealed partial class MainWindow
 
     private static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
 
-    /// <summary>
-    /// Colors for <paramref name="role"/>. <paramref name="noneAllowed"/> is null when the role has no None (a
-    /// line, a note), and false when None is shown but off: a shape keeps a border or a fill.
-    /// </summary>
-    private FrameworkElement ColorPanel(Flyout flyout, string role, MarkupColor? current, bool? noneAllowed, Action<MarkupColor?> choose)
+    /// <summary>Colors to pick from, with None first among the greys when <paramref name="hasNone"/>. A line and a note have no None.</summary>
+    private static FrameworkElement ColorPanel(Flyout flyout, MarkupColor? current, bool hasNone, Action<MarkupColor?> choose)
     {
         void Choose(MarkupColor? color)
         {
@@ -247,7 +244,7 @@ public sealed partial class MainWindow
             choose(color);
         }
         var accent = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
-        Button Cell(MarkupColor? color, string name, double size, bool selected, bool enabled = true)
+        Button Cell(MarkupColor? color, string name, double size, bool selected)
         {
             FrameworkElement face = color is { } c
                 ? new Border { Background = Brush(c), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)), BorderThickness = new Thickness(c is { R: > 240, G: > 240, B: > 240 } ? 1 : 0) }
@@ -259,7 +256,7 @@ public sealed partial class MainWindow
             var button = new Button
             {
                 Content = face, Width = size, Height = size, MinWidth = 0, MinHeight = 0, Padding = new Thickness(selected ? 2 : 0),
-                CornerRadius = new CornerRadius(selected ? 3 : 0), IsEnabled = enabled,
+                CornerRadius = new CornerRadius(selected ? 3 : 0),
                 BorderThickness = new Thickness(selected ? 2 : 0), BorderBrush = accent, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
             };
@@ -295,12 +292,10 @@ public sealed partial class MainWindow
 
         var shades = Grid12(18);
         for (int i = 0; i < Shades.Length; i++)
-            Place(shades, i, i == 0 && noneAllowed is { } allowed
-                ? Cell(null, allowed ? "None" : "None is off: a shape needs a border or a fill", 18, current is null, allowed)
+            Place(shades, i, i == 0 && hasNone
+                ? Cell(null, "None", 18, current is null)
                 : Cell(Shades[i], MarkupPalette.SettingValue(Shades[i]), 18, Ring(Shades[i])));
         panel.Children.Add(shades);
-        if (noneAllowed == false)
-            panel.Children.Add(new TextBlock { Text = "A shape needs a border or a fill, so None is off.", FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
 
         var more = new Button { Content = "More colors…", HorizontalAlignment = HorizontalAlignment.Center };
         more.Click += (_, _) =>

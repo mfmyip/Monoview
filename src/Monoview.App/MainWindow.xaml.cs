@@ -1833,6 +1833,17 @@ public sealed partial class MainWindow : Window
                     ChangeStyle(s => s with { Stroke = null });
                     await Task.Delay(800);
                     Console.Out.WriteLine($"STYLE before={before} after={viewer.Selected?.Style} label='{_contextLabel.Text}'");
+                    if (Arg("--edit") is { } edit)
+                    {
+                        // Type two lines into a bordered, filled text box; with "commit", let go so it's drawn, to compare.
+                        viewer.StyleFor = k => k == ShapeKind.TextBox ? new ShapeStyle(new MarkupColor(90, 200, 250), new MarkupColor(255, 59, 48), 6, 18, Black, Arg("--font") is { } f ? Enum.Parse<TextFont>(f) : TextFont.Helvetica) : ToolStyle(k);
+                        await viewer.DrawAsync(MarkupTool.TextBox, 0, [(0.55, 0.12), (0.85, 0.12)]);
+                        await Task.Delay(300);
+                        if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox box)
+                            box.Text = "test this line is longer than the box will allow awdawdawdwadawdawdawd\nsecond line";
+                        await Task.Delay(300);
+                        if (edit == "commit") { SearchBox.Focus(FocusState.Programmatic); await Task.Delay(1000); }
+                    }
                     if (Arg("--tool") is { } tool) { viewer.Tool = Enum.Parse<MarkupTool>(tool); UpdateToolButtons(); }
                     if (Arg("--open") is { } open && (open switch { "fill" => _fillButton, "text" => _textButton, "style" => _styleButton, _ => _borderButton }) is { } button)
                     {
