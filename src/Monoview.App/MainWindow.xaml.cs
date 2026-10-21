@@ -449,8 +449,9 @@ public sealed partial class MainWindow : Window
                 if (!ReferenceEquals(other, s)) other.ApplySidebarWidth();
         };
         view.Viewer.HighlighterMode = _highlighterMode;
-        view.Viewer.ToolStyle = CurrentShapeStyle();
+        view.Viewer.StyleFor = ToolStyle;
         view.Viewer.ToolChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateToolButtons(); };
+        view.Viewer.SelectionChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateStyleControls(); };
         // A dot before the file name marks unsaved changes, as in most editors.
         view.Viewer.PagesEdited += (_, _) =>
         {
@@ -1064,7 +1065,7 @@ public sealed partial class MainWindow : Window
         foreach (var control in DocTools.Children.Concat(SearchTools.Children).Concat(MarkupBar.Children).Append(SidebarButton).OfType<Control>())
             control.IsEnabled = hasDocument;
         // Color swatches don't grey out with their buttons.
-        foreach (var swatch in new FrameworkElement[] { HighlightSwatch, UnderlineSwatch, StrikeSwatch, _strokeSwatch!, _fillSwatch! })
+        foreach (var swatch in new FrameworkElement[] { HighlightSwatch, UnderlineSwatch, StrikeSwatch })
             swatch.Opacity = hasDocument ? 1 : 0.3;
         MarkupBar.Visibility = AppSettings.Current.MarkupBarVisible ? Visibility.Visible : Visibility.Collapsed;
         UpdateToolButtons();
@@ -1804,20 +1805,40 @@ public sealed partial class MainWindow : Window
                     await CurrentView.Document.AddMarkupAsync(0, MarkupKind.Highlight, new MarkupColor(255, 226, 80),
                         [new NormRect(0.580f, 0.340f, 0.766f, 0.360f), new NormRect(0.117f, 0.362f, 0.355f, 0.382f)]);
                     await CurrentView.Document.AddMarkupAsync(0, MarkupKind.Underline, blue, [new NormRect(0.458f, 0.418f, 0.693f, 0.438f)]);
-                    viewer.ToolStyle = new ShapeStyle(red, null, 2.5f);
+                    viewer.StyleFor = _ => new ShapeStyle(red, null, 2.5f);
                     await viewer.DrawAsync(MarkupTool.Ellipse, 0, [(0.362, 0.153), (0.540, 0.191)]);
                     var bracket = Enumerable.Range(0, 30).Select(i => (0.088 + 0.004 * Math.Sin(i / 2.5), 0.398 + i * 0.0064)).ToList();
                     await viewer.DrawAsync(MarkupTool.Ink, 0, bracket);
                     await viewer.DrawAsync(MarkupTool.Line, 0, [(0.117, 0.722), (0.482, 0.722)]);
-                    viewer.ToolStyle = new ShapeStyle(blue, null, 2);
+                    viewer.StyleFor = _ => new ShapeStyle(blue, null, 2);
                     await viewer.DrawAsync(MarkupTool.Rectangle, 0, [(0.103, 0.194), (0.731, 0.286)]);
                     await viewer.DrawAsync(MarkupTool.Arrow, 0, [(0.79, 0.43), (0.70, 0.428)]);
                     await CurrentView.Document.AddNoteAsync(0, 0.76, 0.20, "Great opening line.", new MarkupColor(255, 210, 0));
-                    await CurrentView.Document.AddTextBoxAsync(0, new NormRect(0.795f, 0.408f, 0.985f, 0.452f), "Use this quote", new ShapeStyle(blue, new MarkupColor(232, 241, 252), 1, 13));
+                    await CurrentView.Document.AddTextBoxAsync(0, new NormRect(0.795f, 0.408f, 0.985f, 0.452f), "Use this quote", new ShapeStyle(null, new MarkupColor(232, 241, 252), 1, 13, blue));
                     viewer.ReplaceDocument(CurrentView.Document); // redraw after the direct engine calls
                     await Task.Delay(1500);
                     var kinds = (await CurrentView.Document.GetShapesAsync(0)).Select(s => s.Kind);
                     Console.Out.WriteLine($"SHAPES {string.Join(",", kinds)} undo={HistoryFor((TabViewItem)Tabs.SelectedItem).CanUndo} tool={viewer.Tool}");
+                }
+                if (args.Contains("--style-test"))
+                {
+                    // Draw a rectangle (it comes up selected), make it fill-only from the bar, then open a style flyout.
+                    SetMarkupBarVisible(true);
+                    var viewer = CurrentView!.Viewer;
+                    await viewer.DrawAsync(MarkupTool.Rectangle, 0, [(0.2, 0.3), (0.5, 0.45)]);
+                    await Task.Delay(800);
+                    string before = $"{viewer.Selected?.Kind} '{_contextLabel!.Text}'";
+                    ChangeStyle(s => s with { Fill = new MarkupColor(90, 200, 250) });
+                    await Task.Delay(800);
+                    ChangeStyle(s => s with { Stroke = null });
+                    await Task.Delay(800);
+                    Console.Out.WriteLine($"STYLE before={before} after={viewer.Selected?.Style} label='{_contextLabel.Text}'");
+                    if (Arg("--tool") is { } tool) { viewer.Tool = Enum.Parse<MarkupTool>(tool); UpdateToolButtons(); }
+                    if (Arg("--open") is { } open && (open switch { "fill" => _fillButton, "text" => _textButton, "style" => _styleButton, _ => _borderButton }) is { } button)
+                    {
+                        button.Flyout.ShowAt(button);
+                        await Task.Delay(600);
+                    }
                 }
                 if (args.Contains("--form-test"))
                 {
