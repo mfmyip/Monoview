@@ -7,13 +7,15 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- A little lighter than the toolbar: the selected tab and the sidebar, like Chrome's active tab. -->
+            <!-- A little lighter than the toolbar: the selected tab, and the cards it sits over (sidebar, home page). -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#FBFBFB" />
+                    <SolidColorBrush x:Key="PanelStrokeBrush" Color="#D6D6D9" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#2C2C2C" />
+                    <SolidColorBrush x:Key="PanelStrokeBrush" Color="#3E3F44" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

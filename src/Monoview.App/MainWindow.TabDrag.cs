@@ -296,6 +296,7 @@ public sealed partial class MainWindow
                 Header = Path.GetFileName(source.Document.Path), IconSource = new SymbolIconSource { Symbol = Symbol.Document },
                 IsClosable = false, IsHitTestVisible = false, Opacity = 0.45,
             };
+            MakePill(placeholder);
             _incoming = incoming = (placeholder, view);
         }
         int at = Tabs.TabItems.IndexOf(incoming.Placeholder);

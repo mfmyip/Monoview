@@ -38,13 +38,9 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         EventHandler themeChanged = (_, _) => ApplyTheme();
         AppSettings.Changed += themeChanged;
-        // Under the tabs: a gap in the selected tab's color instead of the document's top line.
+        // The tab strip has room around its pills; without it the cards keep a full gutter.
         Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
-        {
-            DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
-            DocumentHost.Margin = new Thickness(0, Tabs.Visibility == Visibility.Visible ? TabGap.Height : 0, 0, 0);
-            TabGap.Visibility = Tabs.Visibility;
-        });
+            DocumentHost.Margin = new Thickness(8, Tabs.Visibility == Visibility.Visible ? 2 : 8, 8, 8));
         Tabs.LayoutUpdated += (_, _) =>
         {
             // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move
@@ -218,6 +214,7 @@ public sealed partial class MainWindow : Window
     private TabViewItem AddTab(DocumentView? view, int index = -1)
     {
         var tab = new TabViewItem { Tag = view, IconSource = new SymbolIconSource { Symbol = view is null ? Symbol.Home : Symbol.Document } };
+        MakePill(tab);
         if (view is null) tab.Header = "Home";
         UpdateTabHeader(tab);
         if (view is not null) tab.ContextFlyout = BuildTabMenu(tab);
@@ -393,6 +390,21 @@ public sealed partial class MainWindow : Window
     {
         if (!_benchmark && AppSettings.Current.RememberLastPage)
             ReadingPositions.Set(view.Document.Path, view.Viewer.CurrentPage);
+    }
+
+    /// <summary>
+    /// A tab as a rounded pill. Unselected it is see-through; selected it takes the strip's TabViewItemHeaderBackground.
+    /// The template rounds only a tab's top corners, so its TabContainer gets all four once it's built.
+    /// </summary>
+    private static void MakePill(TabViewItem tab)
+    {
+        tab.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        tab.Loaded += (_, _) =>
+        {
+            if (FindByName(tab, "TabContainer") is not Grid box) return;
+            box.CornerRadius = new CornerRadius(8);
+            box.Margin = new Thickness(0, 4, 0, 4);
+        };
     }
 
     /// <summary>Tabs slide to a new place, like Chrome's, when one opens, closes or is held over the strip.</summary>

@@ -78,6 +78,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
     public void SetSidebarVisible(bool visible)
     {
         Sidebar.Visibility = SidebarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ViewerHost.Margin = new Thickness(visible ? 8 : 0, 0, 0, 0);
         // Reopening uses the width the user last dragged it to.
         SidebarColumn.Width = new GridLength(visible ? AppSettings.Current.SidebarWidth : 0);
     }
@@ -238,6 +239,8 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
     private void Thumbnails_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        foreach (var left in e.RemovedItems.OfType<ThumbnailItem>()) left.IsSelected = false;
+        foreach (var picked in e.AddedItems.OfType<ThumbnailItem>()) picked.IsSelected = true;
         // Only a single selection jumps; Ctrl or Shift-clicking more pages just selects them.
         if (_syncingThumbs || Thumbnails.SelectedItems.Count != 1 || Thumbnails.SelectedItem is not ThumbnailItem item) return;
         Viewer.NavigateTo(item.Index);
