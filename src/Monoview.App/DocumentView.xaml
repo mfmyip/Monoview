@@ -25,7 +25,7 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Grid x:Name="Sidebar">
+        <Grid x:Name="Sidebar" Background="{ThemeResource PanelSurfaceBrush}" CornerRadius="10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -45,9 +45,15 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
+                <!-- Outlined, not filled, so it reads as a control on the card; on, it fills with the accent. -->
                 <ToggleButton x:Name="EditPagesButton" HorizontalAlignment="Stretch" Margin="8,4,8,4"
                               Click="EditPagesButton_Click"
                               ToolTipService.ToolTip="Turn on to reorder, delete, rotate or insert pages">
+                    <ToggleButton.Resources>
+                        <SolidColorBrush x:Key="ToggleButtonBackground" Color="Transparent" />
+                        <StaticResource x:Key="ToggleButtonBorderBrush" ResourceKey="PanelStrokeBrush" />
+                        <StaticResource x:Key="ToggleButtonBorderBrushPointerOver" ResourceKey="PanelStrokeBrush" />
+                    </ToggleButton.Resources>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon x:Name="EditPagesIcon" Glyph="&#xE70F;" FontSize="14" />
                         <TextBlock x:Name="EditPagesLabel" Text="Edit pages" />
@@ -60,6 +66,13 @@
                       DragItemsStarting="Thumbnails_DragItemsStarting" DragItemsCompleted="Thumbnails_DragItemsCompleted"
                       DragOver="Thumbnails_DragOver" DragLeave="Thumbnails_DragLeave" Drop="Thumbnails_Drop"
                       KeyDown="Thumbnails_KeyDown" ContextRequested="Thumbnails_ContextRequested">
+                <!-- The selected page shows as a ring around its picture, not a filled row with a bar. -->
+                <ListView.Resources>
+                    <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
+                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                    <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="ListViewItemBackgroundPointerOver" />
+                    <StaticResource x:Key="ListViewItemBackgroundSelectedPressed" ResourceKey="ListViewItemBackgroundPressed" />
+                </ListView.Resources>
                 <ListView.ContextFlyout>
                     <MenuFlyout x:Name="PageMenu" Opening="PageMenu_Opening">
                         <ToggleMenuFlyoutItem x:Name="EditPagesMenuItem" Text="Edit pages" Click="EditPagesMenuItem_Click" />
@@ -88,9 +101,11 @@
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:ThumbnailItem">
                         <StackPanel Padding="0,8" HorizontalAlignment="Center">
-                            <Border Width="{x:Bind DisplayWidth}" Height="{x:Bind DisplayHeight}"
-                                    Background="White" BorderBrush="#30000000" BorderThickness="1">
-                                <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
+                            <Border BorderBrush="{x:Bind Ring, Mode=OneWay}" BorderThickness="2" CornerRadius="5" Padding="2">
+                                <Border Width="{x:Bind DisplayWidth}" Height="{x:Bind DisplayHeight}" CornerRadius="2"
+                                        Background="White" BorderBrush="#30000000" BorderThickness="1">
+                                    <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
+                                </Border>
                             </Border>
                             <TextBlock Text="{x:Bind Label}" HorizontalAlignment="Center" Margin="0,4,0,0"
                                        Style="{StaticResource CaptionTextBlockStyle}" />
@@ -142,10 +157,11 @@
         </Grid>
 
         <!-- Rounded top-left corner, so the page area meets the tab line softly. -->
-        <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
+        <!-- A card beside the sidebar card, with a gutter between that the splitter sits in. -->
+        <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="10" Margin="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
 
         <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->
-        <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="-3,0,0,0"
+        <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="1,0,0,0"
                 HorizontalAlignment="Left" Background="Transparent"
                 PointerEntered="SidebarSplitter_PointerEntered" PointerExited="SidebarSplitter_PointerExited"
                 PointerPressed="SidebarSplitter_PointerPressed" PointerMoved="SidebarSplitter_PointerMoved"

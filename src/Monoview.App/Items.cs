@@ -13,6 +13,24 @@ public sealed partial class ThumbnailItem(int index, double width, double height
     public double DisplayWidth { get; } = width;
     public double DisplayHeight { get; } = height;
 
+    private bool _isSelected;
+
+    /// <summary>Selected in the page list: the picture gets an accent ring.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Ring)));
+        }
+    }
+
+    public Microsoft.UI.Xaml.Media.Brush Ring => _isSelected
+        ? (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["AccentFillColorDefaultBrush"]
+        : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
     public WriteableBitmap? Image
     {
         get => _image;

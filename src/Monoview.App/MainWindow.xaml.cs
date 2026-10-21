@@ -38,13 +38,20 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         EventHandler themeChanged = (_, _) => ApplyTheme();
         AppSettings.Changed += themeChanged;
-        // The tab strip draws its own line under the tabs, open under the active one; the document's top line would close it.
+        // The tab strip has room around its pills; without it the cards keep a full gutter.
         Tabs.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) =>
+            DocumentHost.Margin = new Thickness(8, Tabs.Visibility == Visibility.Visible ? 2 : 8, 8, 8));
+        Tabs.LayoutUpdated += (_, _) =>
         {
-            DocumentHost.BorderThickness = new Thickness(0, Tabs.Visibility == Visibility.Visible ? 0 : 1, 0, 0);
-            TabOutline.Visibility = Tabs.Visibility;
-        });
-        Tabs.LayoutUpdated += (_, _) => UpdateTabOutline();
+            // The list's theme transitions fade a new tab's name in over a busy UI thread, so it shows late, and move
+            // tabs slowly; SlideTabs gives them a quick slide instead. The strip starts hidden,
+            // so its list only exists after its first layout.
+            if (!_tabTransitionsCleared && FindByName(Tabs, "TabListView") is ListViewBase list)
+            {
+                list.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
+                _tabTransitionsCleared = true;
+            }
+        };
         // At least as tall as the window, so the first-run page can center in it.
         StartPage.SizeChanged += (_, e) => StartArea.MinHeight = e.NewSize.Height;
 
@@ -207,6 +214,7 @@ public sealed partial class MainWindow : Window
     private TabViewItem AddTab(DocumentView? view, int index = -1)
     {
         var tab = new TabViewItem { Tag = view, IconSource = new SymbolIconSource { Symbol = view is null ? Symbol.Home : Symbol.Document } };
+        MakePill(tab);
         if (view is null) tab.Header = "Home";
         UpdateTabHeader(tab);
         if (view is not null) tab.ContextFlyout = BuildTabMenu(tab);
@@ -221,7 +229,7 @@ public sealed partial class MainWindow : Window
         tab.AllowDrop = true;
         tab.DragEnter += (_, _) =>
         {
-            if (s_tabDrag is not null || ReferenceEquals(Tabs.SelectedItem, tab)) return;
+            if (ReferenceEquals(Tabs.SelectedItem, tab)) return;
             _hoverTab = tab;
             _hoverSwitch.Restart();
         };
@@ -229,6 +237,7 @@ public sealed partial class MainWindow : Window
         {
             if (_hoverTab == tab) _hoverSwitch.Stop();
         };
+        AttachTabDrag(tab);
         if (view is not null)
         {
             view.Visibility = Visibility.Collapsed;
@@ -301,126 +310,6 @@ public sealed partial class MainWindow : Window
         MoveTab(tab, window);
     }
 
-    /// <summary>The tab being dragged, and its window, so another window can take it.</summary>
-    private static (MainWindow Window, TabViewItem Tab)? s_tabDrag;
-    private const string TabDragFormat = "Monoview.Tab";
-
-    private bool IsTabFromOtherWindow(DragEventArgs e) =>
-        s_tabDrag is { } drag && drag.Window != this && e.DataView.Contains(TabDragFormat);
-
-    private void Tabs_TabDragStarting(TabView sender, TabViewTabDragStartingEventArgs args)
-    {
-        // A home tab has no document to move to another window.
-        if (args.Tab.Tag is null)
-        {
-            args.Cancel = true;
-            return;
-        }
-        s_tabDrag = (this, args.Tab);
-        args.Data.SetData(TabDragFormat, "tab");
-        args.Data.RequestedOperation = DataPackageOperation.Move;
-    }
-
-    private void Tabs_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
-    {
-        s_tabDrag = null;
-        foreach (var window in App.Current.Windows)
-            window.TakeIncomingTab(null);
-    }
-
-    private void Tabs_TabStripDragOver(object sender, DragEventArgs e)
-    {
-        if (!IsTabFromOtherWindow(e)) return;
-        e.AcceptedOperation = DataPackageOperation.Move;
-        e.DragUIOverride.Caption = "Move tab here";
-        ShowIncomingTab(TabIndexAt(e.GetPosition(Tabs).X));
-    }
-
-    /// <summary>
-    /// A tab from another window held over this one: a greyed-out tab with its file name where it will land, and
-    /// its view, built and drawn unseen behind the current one, so the drop shows the document at once.
-    /// </summary>
-    private (TabViewItem Placeholder, DocumentView View)? _incoming;
-
-    /// <summary>Puts the placeholder for the dragged tab at <paramref name="index"/> among this window's tabs.</summary>
-    private void ShowIncomingTab(int index)
-    {
-        if (s_tabDrag is not { Tab.Tag: DocumentView source }) return;
-        if (_incoming is not { } incoming)
-        {
-            var view = CreateDocumentView(source.Document);
-            view.Viewer.InitialState = source.Viewer.CaptureState();
-            view.SetSidebarVisible(source.IsSidebarVisible);
-            view.Opacity = 0;
-            view.IsHitTestVisible = false;
-            DocumentHost.Children.Insert(0, view);
-            var placeholder = new TabViewItem
-            {
-                Header = Path.GetFileName(source.Document.Path), IconSource = new SymbolIconSource { Symbol = Symbol.Document },
-                IsClosable = false, IsHitTestVisible = false, Opacity = 0.45,
-            };
-            _incoming = incoming = (placeholder, view);
-        }
-        int at = Tabs.TabItems.IndexOf(incoming.Placeholder);
-        if (at == index) return;
-        if (at >= 0) Tabs.TabItems.RemoveAt(at);
-        Tabs.TabItems.Insert(Math.Min(index, Tabs.TabItems.Count), incoming.Placeholder);
-        Tabs.Visibility = Visibility.Visible;
-    }
-
-    /// <summary>
-    /// Removes the dragged tab's placeholder. Returns the view built for it, and the placeholder's place, when it shows
-    /// <paramref name="doc"/>; otherwise closes the view and returns null.
-    /// </summary>
-    private (DocumentView View, int Index)? TakeIncomingTab(PdfDocument? doc)
-    {
-        if (_incoming is not { } incoming) return null;
-        _incoming = null;
-        int index = Tabs.TabItems.IndexOf(incoming.Placeholder);
-        Tabs.TabItems.Remove(incoming.Placeholder);
-        DocumentHost.Children.Remove(incoming.View);
-        if (!ReferenceEquals(incoming.View.Document, doc))
-        {
-            incoming.View.Close(closeDocument: false);
-            Tabs.Visibility = !_fullScreen && Tabs.TabItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            return null;
-        }
-        incoming.View.Opacity = 1;
-        incoming.View.IsHitTestVisible = true;
-        return (incoming.View, index);
-    }
-
-    private void Tabs_TabStripDrop(object sender, DragEventArgs e)
-    {
-        if (!IsTabFromOtherWindow(e) || s_tabDrag is not { } drag) return;
-        drag.Window.MoveTab(drag.Tab, this, TabIndexAt(e.GetPosition(Tabs).X));
-    }
-
-    /// <summary>Dropped away from every window: the tab gets a window of its own where it was let go.</summary>
-    private void Tabs_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
-    {
-        GetCursorPos(out var cursor);
-        var at = new Windows.Graphics.PointInt32(cursor.X - 160, cursor.Y - 20);
-        if (Tabs.TabItems.Count == 1) AppWindow.Move(at); // the only tab: just move its window
-        else MoveToNewWindow(args.Tab, at);
-    }
-
-    /// <summary>
-    /// Insert before the first tab whose middle is right of <paramref name="x"/>; at the end otherwise.
-    /// Counts the tabs without the placeholder for a dragged tab.
-    /// </summary>
-    private int TabIndexAt(double x)
-    {
-        int index = 0;
-        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
-        {
-            if (ReferenceEquals(tab, _incoming?.Placeholder)) continue;
-            if (x < tab.TransformToVisual(Tabs).TransformPoint(default).X + tab.ActualWidth / 2) return index;
-            index++;
-        }
-        return index;
-    }
-
     /// <summary>Closed files, newest last, for Ctrl+Shift+T.</summary>
     private static readonly List<string> s_closedPaths = new();
 
@@ -444,16 +333,6 @@ public sealed partial class MainWindow : Window
             return;
         }
     }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CursorPoint
-    {
-        public int X, Y;
-    }
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetCursorPos(out CursorPoint point);
 
     /// <summary>Asks for the password until it's right or the user cancels; null on cancel.</summary>
     private async Task<PdfDocument?> AskPasswordAndOpenAsync(string path)
@@ -513,26 +392,39 @@ public sealed partial class MainWindow : Window
             ReadingPositions.Set(view.Document.Path, view.Viewer.CurrentPage);
     }
 
-    private string? _tabOutlineData;
-
-    // Redrawn on every layout pass (select, reorder, resize, close), so it only rebuilds when the shape moved.
-    private void UpdateTabOutline()
+    /// <summary>
+    /// A tab as a rounded pill. Unselected it is see-through; selected it takes the strip's TabViewItemHeaderBackground.
+    /// The template rounds only a tab's top corners, so its TabContainer gets all four once it's built.
+    /// </summary>
+    private static void MakePill(TabViewItem tab)
     {
-        if (Tabs.Visibility != Visibility.Visible) return;
-        double w = Tabs.ActualWidth, b = Tabs.ActualHeight - 0.5;
-        string data = FormattableString.Invariant($"M 0,{b} H {w}");
-        if (Tabs.SelectedItem is TabViewItem tab && FindByName(tab, "TabContainer") is FrameworkElement box && box.ActualWidth > 0)
+        tab.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        tab.Loaded += (_, _) =>
         {
-            var r = box.TransformToVisual(Tabs).TransformBounds(new Windows.Foundation.Rect(0, 0, box.ActualWidth, box.ActualHeight));
-            double x0 = r.Left + 0.5, x1 = r.Right - 0.5, t = r.Top + 0.5, flare = 8, top = 8;
-            data = FormattableString.Invariant($"M 0,{b} H {x0 - flare} A {flare},{flare} 0 0 0 {x0},{b - flare} V {t + top} A {top},{top} 0 0 1 {x0 + top},{t} ")
-                + FormattableString.Invariant($"H {x1 - top} A {top},{top} 0 0 1 {x1},{t + top} V {b - flare} A {flare},{flare} 0 0 0 {x1 + flare},{b} H {w}");
-        }
-        if (data == _tabOutlineData) return;
-        _tabOutlineData = data;
-        TabOutline.Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
-            typeof(Microsoft.UI.Xaml.Media.Geometry), data);
+            if (FindByName(tab, "TabContainer") is not Grid box) return;
+            box.CornerRadius = new CornerRadius(8);
+            box.Margin = new Thickness(0, 4, 0, 4);
+        };
     }
+
+    /// <summary>Tabs slide to a new place, like Chrome's, when one opens, closes or is held over the strip.</summary>
+    private void SlideTabs()
+    {
+        foreach (var tab in Tabs.TabItems.OfType<TabViewItem>())
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(tab);
+            if (visual.ImplicitAnimations is not null || tab.ActualWidth == 0) continue; // not laid out yet: it would slide in from the left edge
+            var slide = visual.Compositor.CreateVector3KeyFrameAnimation();
+            slide.Target = "Offset";
+            slide.InsertExpressionKeyFrame(1f, "this.FinalValue", EaseOut(visual.Compositor));
+            slide.Duration = SlideTime;
+            var animations = visual.Compositor.CreateImplicitAnimationCollection();
+            animations["Offset"] = slide;
+            visual.ImplicitAnimations = animations;
+        }
+    }
+
+    private bool _tabTransitionsCleared;
 
     private static FrameworkElement? FindByName(DependencyObject root, string name)
     {
@@ -1007,7 +899,11 @@ public sealed partial class MainWindow : Window
             OnCurrentDocumentChanged();
     }
 
-    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCurrentDocumentChanged();
+    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        OnCurrentDocumentChanged();
+        SlideTabs();
+    }
 
     private void OnCurrentDocumentChanged()
     {
@@ -1131,13 +1027,6 @@ public sealed partial class MainWindow : Window
 
     private void Root_DragOver(object sender, DragEventArgs e)
     {
-        if (IsTabFromOtherWindow(e))
-        {
-            e.AcceptedOperation = DataPackageOperation.Move;
-            e.DragUIOverride.Caption = "Move tab here";
-            if (_incoming is null) ShowIncomingTab(Tabs.TabItems.Count); // over the page: it lands at the end
-            return;
-        }
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
@@ -1146,12 +1035,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Root_DragLeave(object sender, DragEventArgs e)
-    {
-        ShowDropHighlight(false);
-        var p = e.GetPosition(Root);
-        if (p.X < 0 || p.Y < 0 || p.X >= Root.ActualWidth || p.Y >= Root.ActualHeight) TakeIncomingTab(null);
-    }
+    private void Root_DragLeave(object sender, DragEventArgs e) => ShowDropHighlight(false);
 
     /// <summary>Lights up the start page's drop zone while files are dragged over the window.</summary>
     private void ShowDropHighlight(bool on)
@@ -1164,11 +1048,6 @@ public sealed partial class MainWindow : Window
     private async void Root_Drop(object sender, DragEventArgs e)
     {
         ShowDropHighlight(false);
-        if (IsTabFromOtherWindow(e) && s_tabDrag is { } drag)
-        {
-            drag.Window.MoveTab(drag.Tab, this); // where the placeholder is
-            return;
-        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await e.DataView.GetStorageItemsAsync();
         foreach (var file in items.OfType<StorageFile>())

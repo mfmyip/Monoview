@@ -37,20 +37,6 @@
         </Grid.KeyboardAccelerators>
         <Grid.Resources>
             <ResourceDictionary>
-                <ResourceDictionary.ThemeDictionaries>
-                    <ResourceDictionary x:Key="Light">
-                        <LinearGradientBrush x:Key="TabOutlineBrush" StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Offset="0" Color="#70000000" />
-                            <GradientStop Offset="1" Color="#30000000" />
-                        </LinearGradientBrush>
-                    </ResourceDictionary>
-                    <ResourceDictionary x:Key="Dark">
-                        <LinearGradientBrush x:Key="TabOutlineBrush" StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Offset="0" Color="#A0FFFFFF" />
-                            <GradientStop Offset="1" Color="#48FFFFFF" />
-                        </LinearGradientBrush>
-                    </ResourceDictionary>
-                </ResourceDictionary.ThemeDictionaries>
                 <!-- Flat, compact toolbar buttons: no fill or border until hovered. -->
                 <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
                     <Setter Property="Background" Value="Transparent" />
@@ -358,30 +344,35 @@
         </Grid>
 
         <TabView x:Name="Tabs" Grid.Row="1" VerticalAlignment="Top" Visibility="Collapsed"
-                 TabWidthMode="SizeToContent" CanReorderTabs="True" CanDragTabs="True" AllowDropTabs="True"
-                 TabDragStarting="Tabs_TabDragStarting" TabDragCompleted="Tabs_TabDragCompleted"
-                 TabDroppedOutside="Tabs_TabDroppedOutside" TabStripDragOver="Tabs_TabStripDragOver" TabStripDrop="Tabs_TabStripDrop"
+                 TabWidthMode="SizeToContent" CanReorderTabs="False" CanDragTabs="False" AllowDropTabs="False"
                  AddTabButtonClick="Tabs_AddTabButtonClick"
                  TabCloseRequested="Tabs_TabCloseRequested"
                  SelectionChanged="Tabs_SelectionChanged">
-            <!-- The tab strip draws no fill or lines of its own; TabOutline draws them. -->
+            <!-- Tabs float as pills over the toolbar's ground, like the cards below, so none has to join the page.
+                 The selected tab takes TabViewItemHeaderBackground; its flared shape is hidden. MakePill does the rest. -->
             <TabView.Resources>
+                <!-- A small close button, like Chrome's, so a click meant for the tab rarely closes it. -->
+                <x:Double x:Key="TabViewItemHeaderCloseButtonWidth">18</x:Double>
+                <x:Double x:Key="TabViewItemHeaderCloseButtonHeight">18</x:Double>
+                <x:Double x:Key="TabViewItemHeaderCloseFontSize">10</x:Double>
+                <Thickness x:Key="TabViewItemHeaderCloseMargin">8,0,2,0</Thickness>
+                <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
                 <SolidColorBrush x:Key="TabViewItemHeaderBackgroundSelected" Color="Transparent" />
+                <SolidColorBrush x:Key="TabViewItemSeparator" Color="Transparent" />
+                <Thickness x:Key="TabViewSelectedItemHeaderMargin">0,4,0,4</Thickness>
                 <SolidColorBrush x:Key="TabViewBorderBrush" Color="Transparent" />
                 <SolidColorBrush x:Key="TabViewSelectedItemBorderBrush" Color="Transparent" />
             </TabView.Resources>
         </TabView>
-        <!-- One line under the tabs that rises around the active tab like a hat, with rounded corners. Brighter at the top, like glass. -->
-        <Path x:Name="TabOutline" Grid.Row="1" IsHitTestVisible="False" Visibility="Collapsed"
-              HorizontalAlignment="Left" VerticalAlignment="Top" StrokeThickness="1" Stroke="{ThemeResource TabOutlineBrush}" />
 
         <!-- Collapsed while closed, or its margin leaves a gap under the tabs. -->
         <InfoBar x:Name="ErrorBar" Grid.Row="2" Severity="Error" IsOpen="False" Margin="12,0,12,8"
                  Visibility="{x:Bind ErrorBar.IsOpen, Mode=OneWay}" />
 
-        <Grid x:Name="DocumentHost" Grid.Row="3" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+        <!-- Sidebar, page view and home page are cards with a gutter of the toolbar's ground around them. -->
+        <Grid x:Name="DocumentHost" Grid.Row="3" Margin="8">
             <!-- The start page, also shown in a new tab. With no recent files it is the centered first-run page. -->
-            <ScrollViewer x:Name="StartPage" Visibility="Collapsed">
+            <ScrollViewer x:Name="StartPage" Visibility="Collapsed" Background="{ThemeResource PanelSurfaceBrush}" CornerRadius="10">
                 <Grid x:Name="StartArea">
                     <StackPanel x:Name="StartContent" MaxWidth="920" Margin="24,40" Spacing="28">
                         <StackPanel x:Name="HeroHeader" HorizontalAlignment="Center" Spacing="8">
