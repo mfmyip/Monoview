@@ -44,7 +44,14 @@ public sealed partial class PdfViewer
     private sealed record ShapeDrag(Shape Shape, Handle? Resize, (double X, double Y) Start, NormRect From)
     {
         public NormRect Now { get; set; } = From;
+
+        /// <summary>The page where the object was, drawn without it, laid over the page so only the moving copy shows.</summary>
+        public Image? Cover { get; set; }
+        public bool CoverRequested { get; set; }
     }
+
+    /// <summary>A drag that ended, still drawn until the page has been drawn again with the object in its new place.</summary>
+    private ShapeDrag? _settling;
 
     /// <summary>A shape being drawn with a tool, in the page as shown (0 to 1).</summary>
     private sealed class Drawing(MarkupTool tool, int page, (double X, double Y) start)
@@ -292,6 +299,12 @@ public sealed partial class PdfViewer
                 double left = Math.Clamp(from.Left + dx, 0, 1 - from.Width), top = Math.Clamp(from.Top + dy, 0, 1 - from.Height);
                 drag.Now = new NormRect((float)left, (float)top, (float)(left + from.Width), (float)(top + from.Height));
             }
+            if (!drag.CoverRequested)
+            {
+                drag.CoverRequested = true;
+                _settling = null;
+                _ = CoverOriginalAsync(drag);
+            }
             if (_views.TryGetValue(page, out var view)) RefreshOverlay(view);
             return true;
         }
@@ -320,7 +333,10 @@ public sealed partial class PdfViewer
         _drag = null;
         _surface.ReleasePointerCapture(e.Pointer);
         if (drag.Now != drag.From)
+        {
+            _settling = drag;
             _ = MoveShapeAsync(drag.Shape, FromShown(drag.Now));
+        }
         else if (drag.Shape.Kind == ShapeKind.Note)
             EditNote(drag.Shape, p); // a click on a note opens it
         return true;
@@ -424,8 +440,43 @@ public sealed partial class PdfViewer
 
     private async Task MoveShapeAsync(Shape shape, NormRect rect)
     {
+        Selected = shape with { Rect = rect }; // the handles stay with the moved copy
         await EditAsync(shape.PageIndex, () => _doc.MoveShapeAsync(shape, rect), select: false);
-        Selected = shape with { Rect = rect };
+    }
+
+    /// <summary>Renders the page under where the dragged object was, without it, to lay over the page while dragging.</summary>
+    private async Task CoverOriginalAsync(ShapeDrag drag)
+    {
+        int page = drag.Shape.PageIndex;
+        double s = RasterScale;
+        int fullW = Math.Max(1, (int)Math.Round(_w[page] * s)), fullH = Math.Max(1, (int)Math.Round(_h[page] * s));
+        var from = drag.From;
+        int left = Math.Clamp((int)(from.Left * fullW) - 2, 0, fullW - 1), top = Math.Clamp((int)(from.Top * fullH) - 2, 0, fullH - 1);
+        int right = Math.Clamp((int)Math.Ceiling(from.Right * fullW) + 2, left + 1, fullW), bottom = Math.Clamp((int)Math.Ceiling(from.Bottom * fullH) + 2, top + 1, fullH);
+        var rect = new PixelRect(left, top, right - left, bottom - top);
+        var doc = _doc;
+        RenderedBitmap rendered;
+        try
+        {
+            rendered = await doc.RenderAsync(page, fullW, fullH, rect, _rotation, WorkPriority.High, default, drag.Shape.AnnotIndex);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or PdfException)
+        {
+            return;
+        }
+        if (doc != _doc || (_drag != drag && _settling != drag)) return;
+        drag.Cover = new Image { Source = Bitmaps.ToBitmap(rendered), Stretch = Stretch.Fill, Width = rect.Width / s, Height = rect.Height / s };
+        Canvas.SetLeft(drag.Cover, rect.X / s);
+        Canvas.SetTop(drag.Cover, rect.Y / s);
+        if (_views.TryGetValue(page, out var view)) RefreshOverlay(view);
+    }
+
+    /// <summary>A page finished drawing again: a drag that ended there needs its stand-ins no more.</summary>
+    private void TilesDrawn(PageView view)
+    {
+        if (_settling is not { } settled || settled.Shape.PageIndex != view.Index || view.PendingTiles.Count > 0) return;
+        _settling = null;
+        RefreshOverlay(view);
     }
 
     /// <summary>Gives the selected object <paramref name="style"/>; it comes back selected, in front of the others.</summary>
@@ -588,8 +639,11 @@ public sealed partial class PdfViewer
 
         // As in Preview: dots at the corners and edge middles, and no frame. A note has no handles, so it gets a frame.
         var accent = new SolidColorBrush(SelectionColor() with { A = 0xFF });
-        if (_drag is { } moving && moving.Shape.PageIndex == view.Index && moving.Now != moving.From)
+        if ((_drag ?? _settling) is { } moving && moving.Shape.PageIndex == view.Index && moving.Now != moving.From)
+        {
+            if (moving.Cover is { } cover) view.Overlay.Children.Add(cover);
             view.Overlay.Children.Add(Ghost(moving, w, h, accent));
+        }
         if (kind == ShapeKind.Note)
         {
             var frame = new Rectangle

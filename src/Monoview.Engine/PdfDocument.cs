@@ -126,9 +126,11 @@ public sealed partial class PdfDocument : IDisposable
     /// <summary>
     /// Renders part of a page turned <paramref name="rotation"/> quarter turns clockwise (view rotation).
     /// <paramref name="fullWidth"/> x <paramref name="fullHeight"/> is the size of the rotated page.
+    /// <paramref name="hideAnnot"/>, when set, is an annotation left out of this render only, such as an object
+    /// being dragged; the document does not change.
     /// </summary>
     public Task<RenderedBitmap> RenderAsync(int pageIndex, int fullWidth, int fullHeight, PixelRect region, int rotation,
-        WorkPriority priority = WorkPriority.High, CancellationToken ct = default)
+        WorkPriority priority = WorkPriority.High, CancellationToken ct = default, int? hideAnnot = null)
     {
         int rotate = Rotation.Normalize(rotation);
         if (region.Width <= 0 || region.Height <= 0)
@@ -137,6 +139,9 @@ public sealed partial class PdfDocument : IDisposable
         return PdfiumThread.Run(() =>
         {
             var page = GetPage(pageIndex);
+            IntPtr hidden = hideAnnot is { } index ? FPDFPage_GetAnnot(page.__Instance, index) : IntPtr.Zero;
+            int flags = hidden == IntPtr.Zero ? 0 : FPDFAnnot_GetFlags(hidden);
+            if (hidden != IntPtr.Zero) FPDFAnnot_SetFlags(hidden, flags | AnnotFlagHidden);
             var pixels = new byte[region.Width * 4 * region.Height];
             var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
             var bitmap = fpdfview.FPDFBitmapCreateEx(region.Width, region.Height, BitmapFormatBgra,
@@ -152,6 +157,11 @@ public sealed partial class PdfDocument : IDisposable
             {
                 fpdfview.FPDFBitmapDestroy(bitmap);
                 handle.Free();
+                if (hidden != IntPtr.Zero)
+                {
+                    FPDFAnnot_SetFlags(hidden, flags);
+                    FPDFPage_CloseAnnot(hidden);
+                }
             }
             return new RenderedBitmap(region.Width, region.Height, pixels);
         }, priority, ct);

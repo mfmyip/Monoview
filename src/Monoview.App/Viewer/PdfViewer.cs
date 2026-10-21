@@ -797,6 +797,7 @@ public sealed partial class PdfViewer : UserControl
         view.PendingTiles.Remove((key.X, key.Y));
         view.AddTile((key.X, key.Y), bmp, rect, scale);
         view.DropStaleTilesIfComplete();
+        TilesDrawn(view);
         ReportFirstPageIfReady(view);
     }
 

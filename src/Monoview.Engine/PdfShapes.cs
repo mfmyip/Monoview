@@ -47,6 +47,7 @@ public sealed partial class PdfDocument
     private const int AnnotText = 1, AnnotFreeText = 3, AnnotSquare = 5, AnnotCircle = 6, AnnotStamp = 13, AnnotInk = 15;
     private const int ColorTypeInterior = 1; // FPDFANNOT_COLORTYPE_InteriorColor
     private const float NoteSize = 20;       // points; notes show as an icon of this size
+    private const int AnnotFlagHidden = 2;   // FPDF_ANNOT_FLAG_HIDDEN
     private static readonly MarkupColor Black = new(0, 0, 0);
 
     /// <summary>
@@ -635,4 +636,6 @@ public sealed partial class PdfDocument
     [DllImport("pdfium")] private static extern void FPDFPageObj_Transform(IntPtr obj, double a, double b, double c, double d, double e, double f);
     [DllImport("pdfium")] private static extern int FPDFPageObj_GetBounds(IntPtr obj, out float left, out float bottom, out float right, out float top);
     [DllImport("pdfium")] private static extern void FPDFPageObj_Destroy(IntPtr obj);
+    [DllImport("pdfium")] private static extern int FPDFAnnot_GetFlags(IntPtr annot);
+    [DllImport("pdfium")] private static extern int FPDFAnnot_SetFlags(IntPtr annot, int flags);
 }

@@ -208,6 +208,21 @@ public class ShapeTests
     }
 
     [Fact]
+    public async Task Render_can_leave_out_one_object_without_changing_the_document()
+    {
+        using var doc = await PdfDocument.OpenAsync(SamplePdf.Path);
+        await doc.AddBoxAsync(0, ShapeKind.Rectangle, Box, new ShapeStyle(null, Blue));
+        await doc.SaveCopyAsync(Path.Combine(Path.GetTempPath(), $"monoview-hide-{Guid.NewGuid():N}.pdf"));
+        bool modified = doc.IsModified;
+        var page = new PixelRect(0, 0, 612, 792);
+        var box = Assert.Single(await doc.GetShapesAsync(0));
+        var hidden = await doc.RenderAsync(0, 612, 792, page, 0, hideAnnot: box.AnnotIndex);
+        Assert.True(IsWhite(Pixel(hidden, 0.4, 0.6)), "left out");
+        Assert.True(IsBlue(Pixel(await Render(doc), 0.4, 0.6)), "drawn again");
+        Assert.Equal(modified, doc.IsModified);
+    }
+
+    [Fact]
     public async Task Shapes_survive_save()
     {
         string path = Path.Combine(Path.GetTempPath(), $"monoview-shapes-{Guid.NewGuid():N}.pdf");
