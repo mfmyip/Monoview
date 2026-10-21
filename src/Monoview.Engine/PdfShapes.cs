@@ -33,9 +33,10 @@ public sealed record ShapeStyle(MarkupColor? Stroke, MarkupColor? Fill = null, f
 
 /// <summary>
 /// An object on a page. Rect is in unrotated normalized page coordinates; Text is a text box's or note's text.
-/// Style is null for pictures and for objects another app made.
+/// Style is null for pictures and for objects another app made. Ink is an ink object's strokes, in the same coordinates.
 /// </summary>
-public sealed record Shape(int PageIndex, int AnnotIndex, ShapeKind Kind, NormRect Rect, string Text = "", ShapeStyle? Style = null);
+public sealed record Shape(int PageIndex, int AnnotIndex, ShapeKind Kind, NormRect Rect, string Text = "", ShapeStyle? Style = null,
+    IReadOnlyList<IReadOnlyList<(double X, double Y)>>? Ink = null);
 
 /// <summary>
 /// Shapes, freehand ink, text boxes, notes and pictures, stored as standard annotations so other readers show them.
@@ -392,7 +393,10 @@ public sealed partial class PdfDocument
                     if (kind == ShapeKind.Stamp && style is not null) kind = ShapeKind.TextBox;
                     var rect = transform.ApplyToBox(Math.Min(r.Left, r.Right), Math.Min(r.Top, r.Bottom), Math.Max(r.Left, r.Right), Math.Max(r.Top, r.Bottom));
                     string text = kind is ShapeKind.TextBox or ShapeKind.Note ? GetString(annot, "Contents") : "";
-                    shapes.Add(new Shape(pageIndex, i, kind, rect, text, style));
+                    var ink = kind == ShapeKind.Ink
+                        ? ReadInk(annot).Select(points => (IReadOnlyList<(double X, double Y)>)points.Select(p => transform.Apply(p.X, p.Y)).ToList()).ToList()
+                        : null;
+                    shapes.Add(new Shape(pageIndex, i, kind, rect, text, style, ink));
                 }
                 finally
                 {

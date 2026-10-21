@@ -588,6 +588,8 @@ public sealed partial class PdfViewer
 
         // As in Preview: dots at the corners and edge middles, and no frame. A note has no handles, so it gets a frame.
         var accent = new SolidColorBrush(SelectionColor() with { A = 0xFF });
+        if (_drag is { } moving && moving.Shape.PageIndex == view.Index && moving.Now != moving.From)
+            view.Overlay.Children.Add(Ghost(moving, w, h, accent));
         if (kind == ShapeKind.Note)
         {
             var frame = new Rectangle
@@ -607,6 +609,72 @@ public sealed partial class PdfViewer
             Canvas.SetTop(dot, at.Y - 4.5);
             view.Overlay.Children.Add(dot);
         }
+    }
+
+    /// <summary>
+    /// The object being moved or resized, drawn at its new place and size so it follows the pointer, as in Preview.
+    /// The page keeps drawing the object where it was until the pointer lets go.
+    /// </summary>
+    private FrameworkElement Ghost(ShapeDrag drag, double w, double h, Brush accent)
+    {
+        var (shape, from, now) = (drag.Shape, drag.From, drag.Now);
+        var s = shape.Style ?? StyleFor(shape.Kind);
+        double k = _zoom * 96 / 72;
+        static Brush? Paint(MarkupColor? c) => c is { } v ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, v.R, v.G, v.B)) : null;
+        var black = new MarkupColor(0, 0, 0);
+        FrameworkElement element;
+        switch (shape.Kind)
+        {
+            case ShapeKind.Rectangle or ShapeKind.Ellipse:
+                Microsoft.UI.Xaml.Shapes.Shape box = shape.Kind == ShapeKind.Ellipse ? new Ellipse() : new Rectangle();
+                box.Stroke = Paint(s.Stroke);
+                box.StrokeThickness = s.Stroke is null ? 0 : Math.Max(1, s.LineWidth * k);
+                box.Fill = Paint(s.Fill);
+                element = box;
+                break;
+            case ShapeKind.Ink when shape.Ink is { } strokes:
+                // Each point keeps its place within the box, as the engine scales ink on a resize.
+                (double X, double Y) Map((double X, double Y) p)
+                {
+                    var (x, y) = PageRotation.ToView(p.X, p.Y, _rotation);
+                    return ((x - from.Left) / from.Width * now.Width * w, (y - from.Top) / from.Height * now.Height * h);
+                }
+                var geometry = new PathGeometry();
+                foreach (var points in strokes.Where(p => p.Count > 0).Select(p => p.Select(Map).ToList()))
+                {
+                    var figure = new PathFigure { StartPoint = new Point(points[0].X, points[0].Y) };
+                    foreach (var (c1, c2, end) in InkCurve.Segments(points))
+                        figure.Segments.Add(new BezierSegment { Point1 = new(c1.X, c1.Y), Point2 = new(c2.X, c2.Y), Point3 = new(end.X, end.Y) });
+                    geometry.Figures.Add(figure);
+                }
+                element = new Microsoft.UI.Xaml.Shapes.Path
+                {
+                    Data = geometry, Stroke = Paint(s.Stroke ?? black), StrokeThickness = Math.Max(1, s.LineWidth * k),
+                    StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
+                break;
+            case ShapeKind.TextBox:
+                element = new Border
+                {
+                    Background = Paint(s.Fill), BorderBrush = Paint(s.Stroke),
+                    BorderThickness = new Thickness(s.Stroke is null ? 0 : s.LineWidth * k), Padding = new Thickness(2 * k),
+                    Child = new TextBlock
+                    {
+                        Text = shape.Text, TextWrapping = TextWrapping.Wrap, FontSize = Math.Max(1, s.FontSize * k),
+                        FontFamily = new FontFamily(s.Font switch { TextFont.Times => "Times New Roman", TextFont.Courier => "Courier New", _ => "Arial" }),
+                        FontStretch = Windows.UI.Text.FontStretch.Normal, Foreground = Paint(s.TextColor ?? black),
+                    },
+                };
+                break;
+            default: // pictures and notes: an outline where they go
+                element = new Rectangle { Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3] };
+                break;
+        }
+        element.Width = Math.Max(1, now.Width * w);
+        element.Height = Math.Max(1, now.Height * h);
+        Canvas.SetLeft(element, now.Left * w);
+        Canvas.SetTop(element, now.Top * h);
+        return element;
     }
 
     /// <summary>What the tool would draw, in the current style, while the pointer is still down.</summary>
