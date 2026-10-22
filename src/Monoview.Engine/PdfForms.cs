@@ -102,6 +102,24 @@ public sealed partial class PdfDocument
         if (_form != IntPtr.Zero) FPDF_FFLDraw(_form, bitmap, page, startX, startY, width, height, rotate, flags);
     }
 
+    /// <summary>The annotations, other than form fields, that come after the first form field on the page.</summary>
+    private static List<int> ObjectsAboveFormFields(IntPtr page)
+    {
+        var above = new List<int>();
+        bool fieldSeen = false;
+        int count = FPDFPage_GetAnnotCount(page);
+        for (int i = 0; i < count; i++)
+        {
+            IntPtr annot = FPDFPage_GetAnnot(page, i);
+            if (annot == IntPtr.Zero) continue;
+            bool field = FPDFAnnot_GetSubtype(annot) == AnnotWidget;
+            FPDFPage_CloseAnnot(annot);
+            if (field) fieldSeen = true;
+            else if (fieldSeen) above.Add(i);
+        }
+        return above;
+    }
+
     /// <summary>Commits the field being typed in, so saving and snapshots include it; on the PDFium thread.</summary>
     private void CommitFormFocus()
     {

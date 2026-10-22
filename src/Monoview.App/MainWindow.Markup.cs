@@ -10,20 +10,57 @@ using Monoview.Engine;
 namespace Monoview.App;
 
 /// <summary>
-/// The markup bar, Preview's second toolbar row: drawing tools, then line color, fill color, line width and
-/// text size. Ctrl+Shift+A or the Markup button shows and hides it.
+/// The markup bar, Preview's second toolbar row: drawing tools, then Style (line width), Border, Fill and Aa (text).
+/// The style buttons edit the selected object, or else set the style of the next object the tool makes; a button
+/// that doesn't apply is greyed out. Ctrl+Shift+A or the Markup button shows and hides the bar.
 /// </summary>
 public sealed partial class MainWindow
 {
-    private readonly Dictionary<MarkupTool, ToggleButton> _toolButtons = new();
-    private Border? _strokeSwatch, _fillSwatch;
-    private TextBlock? _widthLabel, _sizeLabel;
+    private static readonly MarkupColor Black = new(0, 0, 0);
+    private static readonly float[] LineWidths = [1, 2, 3, 4, 6, 8, 12];
 
-    private static ShapeStyle CurrentShapeStyle()
+    private readonly Dictionary<MarkupTool, ToggleButton> _toolButtons = new();
+    private DropDownButton? _styleButton, _borderButton, _fillButton, _textButton;
+    private Rectangle? _borderIcon, _fillIcon, _textBar;
+    private Microsoft.UI.Xaml.Shapes.Path? _borderSlash, _fillSlash;
+    private TextBlock? _widthLabel, _borderLabel, _fillLabel, _contextLabel;
+
+    /// <summary>Rectangles and ellipses share one style; every other kind has its own.</summary>
+    private static ShapeKind StyleGroup(ShapeKind kind) => kind == ShapeKind.Ellipse ? ShapeKind.Rectangle : kind;
+
+    /// <summary>The style of the next object of <paramref name="kind"/>.</summary>
+    private static ShapeStyle ToolStyle(ShapeKind kind) =>
+        AppSettings.Current.ShapeStyles.TryGetValue(StyleGroup(kind), out var style) ? style : StyleGroup(kind) switch
+        {
+            ShapeKind.TextBox => new ShapeStyle(null, null, 1, 14, Black),
+            ShapeKind.Note => new ShapeStyle(null, new MarkupColor(255, 210, 0)),
+            _ => new ShapeStyle(new MarkupColor(220, 40, 40)),
+        };
+
+    /// <summary>What the style buttons edit: the selected object, else the next one the tool makes. Null when neither.</summary>
+    private (ShapeKind Kind, ShapeStyle Style, bool Selected)? StyleContext()
     {
-        var s = AppSettings.Current;
-        return new ShapeStyle(MarkupPalette.Parse(s.ShapeStroke) ?? new MarkupColor(220, 40, 40), MarkupPalette.Parse(s.ShapeFill),
-            s.ShapeLineWidth, s.ShapeFontSize);
+        if (CurrentView?.Viewer is not { } viewer) return null;
+        if (viewer.Selected is { } shape)
+            return shape.Kind == ShapeKind.Stamp ? null : (shape.Kind, shape.Style ?? ToolStyle(shape.Kind), true);
+        return PdfViewer.KindOf(viewer.Tool) is { } kind ? (kind, ToolStyle(kind), false) : null;
+    }
+
+    private static bool HasLine(ShapeKind kind) => kind is ShapeKind.Ink or ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.TextBox;
+    private static bool HasFill(ShapeKind kind) => kind is ShapeKind.Rectangle or ShapeKind.Ellipse or ShapeKind.TextBox or ShapeKind.Note;
+
+    private void ChangeStyle(Func<ShapeStyle, ShapeStyle> change)
+    {
+        if (StyleContext() is not { } context) return;
+        var style = change(context.Style);
+        if (context.Selected)
+        {
+            _ = CurrentView!.Viewer.RestyleSelectedAsync(style); // the bar updates when the new object is selected
+            return;
+        }
+        AppSettings.Current.ShapeStyles[StyleGroup(context.Kind)] = style;
+        AppSettings.Save();
+        UpdateStyleControls();
     }
 
     private void BuildMarkupBar()
@@ -55,33 +92,245 @@ public sealed partial class MainWindow
         }
         MarkupBar.Children.Add(new Rectangle { Style = (Style)Root.Resources["ToolSeparator"] });
 
-        _strokeSwatch = Swatch();
-        MarkupBar.Children.Add(StyleButton("Line and text color", _strokeSwatch, flyout =>
-            MarkupPalette.ColorRow(flyout, CurrentShapeStyle().Stroke, color => SetShapeStyle(s => s.ShapeStroke = MarkupPalette.SettingValue(color)))));
-
-        _fillSwatch = Swatch();
-        MarkupBar.Children.Add(StyleButton("Fill color", _fillSwatch, flyout =>
+        // Style: three lines of growing width, and the current width.
+        var lines = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        foreach (double h in new[] { 1.0, 2, 3 })
         {
-            var none = new Button { Content = "No fill", HorizontalAlignment = HorizontalAlignment.Stretch };
-            none.Click += (_, _) =>
-            {
-                flyout.Hide();
-                SetShapeStyle(s => s.ShapeFill = "");
-            };
-            var row = MarkupPalette.ColorRow(flyout, CurrentShapeStyle().Fill ?? new MarkupColor(255, 255, 255),
-                color => SetShapeStyle(s => s.ShapeFill = MarkupPalette.SettingValue(color)));
-            return new StackPanel { Spacing = 8, Children = { none, row } };
-        }));
-
+            var bar = new Rectangle { Width = 14, Height = h, RadiusX = 0.5, RadiusY = 0.5 };
+            TakeButtonForeground(bar, stroke: false, fill: true);
+            lines.Children.Add(bar);
+        }
         _widthLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-        MarkupBar.Children.Add(ChoiceButton("Line width", _widthLabel, [1, 2, 3, 5, 8], () => AppSettings.Current.ShapeLineWidth,
-            value => SetShapeStyle(s => s.ShapeLineWidth = value)));
-        _sizeLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-        MarkupBar.Children.Add(ChoiceButton("Text size", _sizeLabel, [10, 12, 14, 18, 24, 36], () => AppSettings.Current.ShapeFontSize,
-            value => SetShapeStyle(s => s.ShapeFontSize = value)));
+        var widthMenu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+        widthMenu.Opening += (_, _) => FillWidthMenu(widthMenu);
+        _styleButton = BarButton("Line width", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { lines, _widthLabel } }, widthMenu);
+
+        // Border: a hollow square in the border color. Fill: a solid one. A red slash means none.
+        (_borderIcon, _borderSlash) = (new Rectangle { Width = 13, Height = 13, RadiusX = 2.5, RadiusY = 2.5, StrokeThickness = 2.5 }, Slash());
+        _borderLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        _borderButton = BarButton("Border color", IconAndLabel(_borderIcon, _borderSlash, _borderLabel),
+            PanelFlyout(flyout => StyleContext() is { } c
+                ? ColorPanel(flyout, c.Style.Stroke, hasNone: c.Kind != ShapeKind.Ink, color => ChangeStyle(s => s with { Stroke = color }))
+                : new Grid()));
+
+        (_fillIcon, _fillSlash) = (new Rectangle { Width = 14, Height = 14, RadiusX = 2.5, RadiusY = 2.5, StrokeThickness = 1 }, Slash());
+        _fillIcon.Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 138, 138, 138));
+        _fillLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        _fillButton = BarButton("Fill color", IconAndLabel(_fillIcon, _fillSlash, _fillLabel),
+            PanelFlyout(flyout => StyleContext() is { } c
+                ? ColorPanel(flyout, c.Style.Fill, hasNone: c.Kind != ShapeKind.Note, color => ChangeStyle(s => s with { Fill = color }))
+                : new Grid()));
+
+        // Aa: font, size and text color.
+        _textBar = new Rectangle { Width = 16, Height = 3, RadiusX = 1, RadiusY = 1 };
+        var aa = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Aa", FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center }, _textBar } };
+        _textButton = BarButton("Font, size and text color", aa, PanelFlyout(TextPanel));
+
+        foreach (var button in new[] { _styleButton, _borderButton, _fillButton, _textButton })
+            MarkupBar.Children.Add(button);
+        _contextLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
+        MarkupBar.Children.Add(_contextLabel);
 
         UpdateStyleControls();
         SetMarkupBarVisible(AppSettings.Current.MarkupBarVisible);
+    }
+
+    private static Microsoft.UI.Xaml.Shapes.Path Slash() => new()
+    {
+        Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M2,16 L16,2"),
+        Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28)), StrokeThickness = 1.5, Width = 18, Height = 18,
+    };
+
+    private static StackPanel IconAndLabel(Rectangle icon, Microsoft.UI.Xaml.Shapes.Path slash, TextBlock label) => new()
+    {
+        Orientation = Orientation.Horizontal, Spacing = 6,
+        Children = { new Grid { Width = 18, Height = 18, Children = { icon, slash } }, label },
+    };
+
+    private void FillWidthMenu(MenuFlyout menu)
+    {
+        menu.Items.Clear();
+        if (StyleContext() is not { } context) return;
+        bool none = context.Style.Stroke is null;
+        if (none) menu.Items.Add(new MenuFlyoutItem { Text = "Pick a border color to set a width", IsEnabled = false });
+        foreach (float width in LineWidths)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = $"{width:0} pt", GroupName = "Line width", IsEnabled = !none,
+                IsChecked = !none && Math.Abs(context.Style.LineWidth - width) < 0.01,
+                Icon = new PathIcon { Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), FormattableString.Invariant($"M0,{8 - width / 2} H16 V{8 + width / 2} H0 Z")) },
+            };
+            item.Click += (_, _) => ChangeStyle(s => s with { LineWidth = width });
+            menu.Items.Add(item);
+        }
+    }
+
+    /// <summary>The Aa flyout: font, size, and a text color button that swaps in the color panel.</summary>
+    private FrameworkElement TextPanel(Flyout flyout)
+    {
+        if (StyleContext() is not { Kind: ShapeKind.TextBox } context) return new Grid();
+        var style = context.Style;
+        var fonts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var (font, label, family) in new[] { (TextFont.Helvetica, "Sans", "Arial"), (TextFont.Times, "Serif", "Times New Roman"), (TextFont.Courier, "Mono", "Courier New") })
+        {
+            var button = new ToggleButton { Content = label, FontFamily = new FontFamily(family), IsChecked = style.Font == font, MinWidth = 64 };
+            AutomationProperties.SetName(button, font.ToString());
+            button.Click += (_, _) =>
+            {
+                foreach (var other in fonts.Children.OfType<ToggleButton>()) other.IsChecked = ReferenceEquals(other, button);
+                ChangeStyle(s => s with { Font = font });
+            };
+            fonts.Children.Add(button);
+        }
+        var size = new NumberBox
+        {
+            Header = "Size (pt)", Value = style.FontSize, Minimum = 6, Maximum = 96, SmallChange = 1, LargeChange = 4,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 140, HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        size.ValueChanged += (_, e) =>
+        {
+            if (!double.IsNaN(e.NewValue) && Math.Abs(e.NewValue - e.OldValue) > 0.01) ChangeStyle(s => s with { FontSize = (float)e.NewValue });
+        };
+        var swatch = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(3), Background = Brush(style.TextColor ?? Black) };
+        var color = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { swatch, new TextBlock { Text = "Text color" } } } };
+        color.Click += (_, _) => flyout.Content = ColorPanel(flyout, style.TextColor ?? Black, hasNone: false, c => ChangeStyle(s => s with { TextColor = c }));
+        return new StackPanel { Spacing = 12, Width = 216, Children = { fonts, size, color } };
+    }
+
+    // ---- The color panel, as in Preview: a row of brights, a grid of shades with None first; the color in use is ringed ----
+
+    private static readonly (string Name, MarkupColor Color)[] Brights =
+    [
+        ("Red", new(255, 59, 48)), ("Orange", new(255, 149, 0)), ("Yellow", new(255, 204, 0)), ("Green", new(52, 199, 89)),
+        ("Cyan", new(90, 200, 250)), ("Blue", new(10, 100, 220)), ("Magenta", new(255, 45, 206)), ("Purple", new(175, 82, 222)),
+        ("Tan", new(198, 156, 109)), ("White", new(255, 255, 255)), ("Grey", new(138, 138, 138)), ("Black", new(0, 0, 0)),
+    ];
+
+    private static readonly MarkupColor[] Shades = BuildShades();
+
+    /// <summary>A row of greys, then 8 rows of 12 hues from dark to light.</summary>
+    private static MarkupColor[] BuildShades()
+    {
+        var shades = new List<MarkupColor>();
+        for (int i = 0; i < 12; i++)
+        {
+            byte v = (byte)Math.Round(255 - i * 255 / 11.0);
+            shades.Add(new MarkupColor(v, v, v));
+        }
+        int[] hues = [200, 215, 235, 265, 290, 340, 5, 20, 35, 48, 60, 90];
+        foreach (double light in new[] { 0.22, 0.32, 0.42, 0.52, 0.62, 0.72, 0.82, 0.91 })
+            foreach (int hue in hues)
+            {
+                double a = 0.8 * Math.Min(light, 1 - light);
+                byte Channel(int n)
+                {
+                    double k = (n + hue / 30.0) % 12;
+                    return (byte)Math.Round(255 * (light - a * Math.Max(-1, Math.Min(Math.Min(k - 3, 9 - k), 1))));
+                }
+                shades.Add(new MarkupColor(Channel(0), Channel(8), Channel(4)));
+            }
+        return shades.ToArray();
+    }
+
+    private static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+
+    /// <summary>Colors to pick from, with None first among the greys when <paramref name="hasNone"/>. A line and a note have no None.</summary>
+    private static FrameworkElement ColorPanel(Flyout flyout, MarkupColor? current, bool hasNone, Action<MarkupColor?> choose)
+    {
+        void Choose(MarkupColor? color)
+        {
+            flyout.Hide();
+            choose(color);
+        }
+        var accent = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+        Button Cell(MarkupColor? color, string name, double size, bool selected)
+        {
+            FrameworkElement face = color is { } c
+                ? new Border { Background = Brush(c), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)), BorderThickness = new Thickness(c is { R: > 240, G: > 240, B: > 240 } ? 1 : 0) }
+                : new Grid { Background = Brush(new MarkupColor(255, 255, 255)), Children = { new Microsoft.UI.Xaml.Shapes.Path
+                    {
+                        Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M0,10 L10,0"), Stretch = Stretch.Fill, Margin = new Thickness(1), // fits the cell, ringed or not
+                        Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28)), StrokeThickness = 1.5,
+                    } } };
+            var button = new Button
+            {
+                Content = face, Width = size, Height = size, MinWidth = 0, MinHeight = 0, Padding = new Thickness(selected ? 2 : 0),
+                CornerRadius = new CornerRadius(selected ? 3 : 0),
+                BorderThickness = new Thickness(selected ? 2 : 0), BorderBrush = accent, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
+            };
+            ToolTipService.SetToolTip(button, name);
+            AutomationProperties.SetName(button, name);
+            button.Click += (_, _) => Choose(color);
+            return button;
+        }
+        static Grid Grid12(double cell)
+        {
+            var grid = new Grid();
+            for (int i = 0; i < 12; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(cell) });
+            return grid;
+        }
+        void Place(Grid grid, int index, UIElement child)
+        {
+            while (grid.RowDefinitions.Count <= index / 12) grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
+            Grid.SetRow((FrameworkElement)child, index / 12);
+            Grid.SetColumn((FrameworkElement)child, index % 12);
+            grid.Children.Add(child);
+        }
+
+        var panel = new StackPanel { Spacing = 10, Width = 216 };
+
+        // Ring only the first cell in the color in use: black and white are in both grids.
+        bool ringed = false;
+        bool Ring(MarkupColor color) => !ringed && color == current && (ringed = true);
+
+        var brights = Grid12(18);
+        for (int i = 0; i < Brights.Length; i++)
+            Place(brights, i, Cell(Brights[i].Color, Brights[i].Name, 18, Ring(Brights[i].Color)));
+        panel.Children.Add(brights);
+
+        var shades = Grid12(18);
+        for (int i = 0; i < Shades.Length; i++)
+            Place(shades, i, i == 0 && hasNone
+                ? Cell(null, "None", 18, current is null)
+                : Cell(Shades[i], MarkupPalette.SettingValue(Shades[i]), 18, Ring(Shades[i])));
+        panel.Children.Add(shades);
+
+        var more = new Button { Content = "More colors…", HorizontalAlignment = HorizontalAlignment.Center };
+        more.Click += (_, _) =>
+        {
+            var start = current ?? Black;
+            var picker = new ColorPicker
+            {
+                Color = Windows.UI.Color.FromArgb(255, start.R, start.G, start.B),
+                IsAlphaEnabled = false, IsMoreButtonVisible = false, IsColorChannelTextInputVisible = false,
+            };
+            var use = new Button { Content = "Use color", Style = (Style)Application.Current.Resources["AccentButtonStyle"], HorizontalAlignment = HorizontalAlignment.Right };
+            use.Click += (_, _) => Choose(new MarkupColor(picker.Color.R, picker.Color.G, picker.Color.B));
+            flyout.Content = new StackPanel { Spacing = 10, Children = { picker, use } };
+        };
+        panel.Children.Add(more);
+        return panel;
+    }
+
+    private static Flyout PanelFlyout(Func<Flyout, FrameworkElement> content)
+    {
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+        flyout.Opening += (_, _) => flyout.Content = content(flyout);
+        return flyout;
+    }
+
+    private static DropDownButton BarButton(string name, FrameworkElement content, FlyoutBase flyout)
+    {
+        var button = new DropDownButton
+        {
+            Content = content, Flyout = flyout, Height = 32, Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
+        };
+        ToolTipService.SetToolTip(button, name);
+        AutomationProperties.SetName(button, name);
+        return button;
     }
 
     private static Microsoft.UI.Xaml.Shapes.Path PathIcon(string data, bool filled = false)
@@ -114,69 +363,31 @@ public sealed partial class MainWindow
         };
     }
 
-    // Built from XAML so ThemeResource follows the window's theme setting.
-    private static Border Swatch() => (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
-        <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="16" Height="16" CornerRadius="8"
-                BorderThickness="1" BorderBrush="{ThemeResource TextFillColorSecondaryBrush}" />
-        """);
-
-    /// <summary>A small drop-down whose flyout content is built each time it opens.</summary>
-    private static DropDownButton StyleButton(string name, FrameworkElement icon, Func<Flyout, FrameworkElement> content)
-    {
-        var flyout = new Flyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
-        flyout.Opening += (_, _) => flyout.Content = content(flyout);
-        var button = new DropDownButton
-        {
-            Content = icon, Flyout = flyout, Height = 32, Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
-        };
-        ToolTipService.SetToolTip(button, name);
-        AutomationProperties.SetName(button, name);
-        return button;
-    }
-
-    private static DropDownButton ChoiceButton(string name, TextBlock label, float[] values, Func<float> current, Action<float> choose)
-    {
-        var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
-        menu.Opening += (_, _) =>
-        {
-            menu.Items.Clear();
-            foreach (float value in values)
-            {
-                var item = new RadioMenuFlyoutItem { Text = $"{value:0} pt", GroupName = name, IsChecked = Math.Abs(current() - value) < 0.01 };
-                item.Click += (_, _) => choose(value);
-                menu.Items.Add(item);
-            }
-        };
-        var button = new DropDownButton
-        {
-            Content = label, Flyout = menu, Height = 32, Padding = new Thickness(8, 0, 6, 0), CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
-        };
-        ToolTipService.SetToolTip(button, name);
-        AutomationProperties.SetName(button, name);
-        return button;
-    }
-
-    private void SetShapeStyle(Action<AppSettings> change)
-    {
-        change(AppSettings.Current);
-        AppSettings.Save();
-        var style = CurrentShapeStyle();
-        foreach (var view in DocumentViews())
-            view.Viewer.ToolStyle = style;
-        UpdateStyleControls();
-    }
-
     private void UpdateStyleControls()
     {
-        var style = CurrentShapeStyle();
-        static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        _strokeSwatch!.Background = Brush(style.Stroke);
-        _fillSwatch!.Background = style.Fill is { } fill ? Brush(fill) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        _fillSwatch.Child = style.Fill is null ? PathIcon("M3,13 L13,3") : null; // a slash for no fill
-        _widthLabel!.Text = $"{style.LineWidth:0} pt line";
-        _sizeLabel!.Text = $"{style.FontSize:0} pt text";
+        if (_styleButton is null) return;
+        var context = StyleContext();
+        var kind = context?.Kind;
+        var style = context?.Style;
+        bool line = kind is { } k1 && HasLine(k1), fill = kind is { } k2 && HasFill(k2), text = kind == ShapeKind.TextBox;
+        _styleButton.IsEnabled = _borderButton!.IsEnabled = line;
+        _fillButton!.IsEnabled = fill;
+        _textButton!.IsEnabled = text;
+        var off = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 160, 160, 160));
+        _widthLabel!.Text = line && style!.Stroke is not null ? $"{style.LineWidth:0.#} pt" : "";
+        _borderIcon!.Stroke = line && style!.Stroke is { } stroke ? Brush(stroke) : off;
+        _borderSlash!.Visibility = line && style!.Stroke is null ? Visibility.Visible : Visibility.Collapsed;
+        _borderLabel!.Text = kind == ShapeKind.Ink ? "Line" : "Border";
+        _fillIcon!.Fill = fill && style!.Fill is { } f ? Brush(f) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        _fillSlash!.Visibility = fill && style!.Fill is null ? Visibility.Visible : Visibility.Collapsed;
+        _fillLabel!.Text = kind == ShapeKind.Note ? "Color" : "Fill";
+        _textBar!.Fill = text ? Brush(style!.TextColor ?? Black) : off;
+        string noun = kind switch
+        {
+            ShapeKind.Ink => "line", ShapeKind.Rectangle => "rectangle", ShapeKind.Ellipse => "ellipse",
+            ShapeKind.TextBox => "text box", ShapeKind.Note => "note", _ => "",
+        };
+        _contextLabel!.Text = context is null ? "" : context.Value.Selected ? $"Selected {noun}" : $"New {noun}s";
     }
 
     private void SelectTool(MarkupTool tool)
@@ -194,6 +405,7 @@ public sealed partial class MainWindow
         var tool = CurrentView?.Viewer.Tool ?? MarkupTool.Select;
         foreach (var (key, button) in _toolButtons)
             button.IsChecked = key == tool;
+        UpdateStyleControls();
     }
 
     private void SetMarkupBarVisible(bool visible)

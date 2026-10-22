@@ -30,6 +30,29 @@ public readonly record struct NormRect(float Left, float Top, float Right, float
         new(Math.Min(Left, o.Left), Math.Min(Top, o.Top), Math.Max(Right, o.Right), Math.Max(Bottom, o.Bottom));
 }
 
+/// <summary>Smooth ink, drawn the same way on the page and while the pen is still down.</summary>
+public static class InkCurve
+{
+    /// <summary>
+    /// The Bezier segments of a Catmull-Rom curve through every point: two control points and an end point each.
+    /// Strokes of three points or fewer, such as lines and arrowheads, keep their corners.
+    /// </summary>
+    public static IEnumerable<((double X, double Y) C1, (double X, double Y) C2, (double X, double Y) End)> Segments(IReadOnlyList<(double X, double Y)> p)
+    {
+        for (int i = 0; i < p.Count - 1; i++)
+        {
+            var (b, d) = (p[i], p[i + 1]);
+            if (p.Count <= 3)
+            {
+                yield return (b, d, d);
+                continue;
+            }
+            var (a, e) = (p[Math.Max(0, i - 1)], p[Math.Min(p.Count - 1, i + 2)]);
+            yield return ((b.X + (d.X - a.X) / 6, b.Y + (d.Y - a.Y) / 6), (d.X - (e.X - b.X) / 6, d.Y - (e.Y - b.Y) / 6), d);
+        }
+    }
+}
+
 /// <summary>Maps PDF user space (points, origin bottom-left, unrotated) to normalized display coordinates.</summary>
 internal readonly record struct PageTransform(double A, double B, double C, double D, double E, double F)
 {

@@ -797,6 +797,7 @@ public sealed partial class PdfViewer : UserControl
         view.PendingTiles.Remove((key.X, key.Y));
         view.AddTile((key.X, key.Y), bmp, rect, scale);
         view.DropStaleTilesIfComplete();
+        TilesDrawn(view);
         ReportFirstPageIfReady(view);
     }
 
@@ -923,7 +924,7 @@ public sealed partial class PdfViewer : UserControl
             AutoScrollWhileSelecting(e.GetCurrentPoint(_scroller).Position);
             return;
         }
-        if (HandleFormMove(point.Position) || HandleShapeMove(point.Position)) return;
+        if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
 
         if (LinkAt(point.Position) is not null)
         {

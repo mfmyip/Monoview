@@ -30,8 +30,10 @@ public sealed partial class PdfViewer
     private readonly HashSet<int> _shapesLoading = new();
     private readonly InputCursor _placeCursor = InputSystemCursor.Create(InputSystemCursorShape.Cross);
     private readonly InputCursor _moveCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeAll);
-    private readonly InputCursor _resizeCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast);
-    private Shape? _selected;
+    private readonly InputCursor _resizeNwSe = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast);
+    private readonly InputCursor _resizeNeSw = InputSystemCursor.Create(InputSystemCursorShape.SizeNortheastSouthwest);
+    private readonly InputCursor _resizeWe = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+    private readonly InputCursor _resizeNs = InputSystemCursor.Create(InputSystemCursorShape.SizeNorthSouth);
     private ShapeDrag? _drag;
     private Drawing? _drawing;
     private int? _selectNewestOn;
@@ -39,10 +41,17 @@ public sealed partial class PdfViewer
     private MarkupTool _tool;
 
     /// <summary>A shape being dragged: where the pointer went down, the rect it started at and where it is now, as shown.</summary>
-    private sealed record ShapeDrag(Shape Shape, bool Resize, (double X, double Y) Start, NormRect From)
+    private sealed record ShapeDrag(Shape Shape, Handle? Resize, (double X, double Y) Start, NormRect From)
     {
         public NormRect Now { get; set; } = From;
+
+        /// <summary>The page where the object was, drawn without it, laid over the page so only the moving copy shows.</summary>
+        public Image? Cover { get; set; }
+        public bool CoverRequested { get; set; }
     }
+
+    /// <summary>A drag that ended, still drawn until the page has been drawn again with the object in its new place.</summary>
+    private ShapeDrag? _settling;
 
     /// <summary>A shape being drawn with a tool, in the page as shown (0 to 1).</summary>
     private sealed class Drawing(MarkupTool tool, int page, (double X, double Y) start)
@@ -63,7 +72,13 @@ public sealed partial class PdfViewer
             if (_tool == value) return;
             _tool = value;
             _drawing = null;
-            if (value != MarkupTool.Select) PendingStamp = null;
+            if (value != MarkupTool.Select)
+            {
+                // A drawing tool styles the next object, so let go of the selected one, as Preview does.
+                PendingStamp = null;
+                Selected = null;
+                RefreshAllOverlays();
+            }
             ToolChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -73,8 +88,35 @@ public sealed partial class PdfViewer
     /// <summary>The crop tool drew an area: the page and the area to keep, in unrotated normalized page coordinates.</summary>
     public event EventHandler<(int Page, NormRect Area)>? CropRequested;
 
-    /// <summary>Colors, line width and text size for new shapes.</summary>
-    public ShapeStyle ToolStyle { get; set; } = new(new MarkupColor(220, 40, 40));
+    /// <summary>The style of the next object of each kind.</summary>
+    public Func<ShapeKind, ShapeStyle> StyleFor { get; set; } = _ => new(new MarkupColor(220, 40, 40));
+
+    /// <summary>The kind of object <paramref name="tool"/> makes; null for Select and Crop.</summary>
+    public static ShapeKind? KindOf(MarkupTool tool) => tool switch
+    {
+        MarkupTool.Ink or MarkupTool.Line or MarkupTool.Arrow => ShapeKind.Ink,
+        MarkupTool.Rectangle => ShapeKind.Rectangle,
+        MarkupTool.Ellipse => ShapeKind.Ellipse,
+        MarkupTool.TextBox => ShapeKind.TextBox,
+        MarkupTool.Note => ShapeKind.Note,
+        _ => null,
+    };
+
+    /// <summary>The selected object, if any.</summary>
+    public Shape? Selected
+    {
+        get => _selected;
+        private set
+        {
+            if (_selected == value) return;
+            _selected = value;
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private Shape? _selected;
+
+    public event EventHandler? SelectionChanged;
 
     /// <summary>The picture the next click on a page places, such as a signature; null when not placing.</summary>
     public StampPicture? PendingStamp { get; set; }
@@ -96,7 +138,15 @@ public sealed partial class PdfViewer
             if (_selectNewestOn == index && shapes.Count > 0)
             {
                 _selectNewestOn = null;
-                _selected = shapes[^1];
+                Selected = shapes[^1];
+                if (_views.TryGetValue(index, out var view)) RefreshOverlay(view);
+            }
+            // An edit can change the selected object's size, text or style, as when a text box grows to fit: take it
+            // as it is now, so its handles and the style bar follow.
+            else if (Selected is { } old && old.PageIndex == index
+                && shapes.FirstOrDefault(s => s.AnnotIndex == old.AnnotIndex && s.Kind == old.Kind) is { } now && (now.Rect != old.Rect || now.Text != old.Text || now.Style != old.Style))
+            {
+                Selected = now;
                 if (_views.TryGetValue(index, out var view)) RefreshOverlay(view);
             }
         }
@@ -135,14 +185,39 @@ public sealed partial class PdfViewer
         return shapes.LastOrDefault(s => s.Rect.Contains(x, y));
     }
 
-    private bool OnResizeHandle(Shape shape, Point p)
+    /// <summary>A resize handle, by the edges it moves: -1 for left or top, 1 for right or bottom, 0 for neither.</summary>
+    private readonly record struct Handle(int X, int Y);
+
+    private static readonly Handle[] Corners = [new(-1, -1), new(1, -1), new(1, 1), new(-1, 1)];
+    private static readonly Handle[] AllHandles = [.. Corners, new(0, -1), new(1, 0), new(0, 1), new(-1, 0)];
+
+    /// <summary>Preview's handles: the corners and edge middles. Pictures keep their shape, so corners only; notes keep their size.</summary>
+    private static Handle[] HandlesFor(ShapeKind kind) => kind switch
     {
-        if (shape.Kind == ShapeKind.Note) return false; // notes keep their icon size
+        ShapeKind.Note => [],
+        ShapeKind.Stamp => Corners,
+        _ => AllHandles,
+    };
+
+    /// <summary>Where <paramref name="handle"/> sits on <paramref name="shown"/>, in pixels from the page's corner.</summary>
+    private static Point HandlePoint(NormRect shown, Handle handle, double w, double h) => new(
+        (handle.X < 0 ? shown.Left : handle.X > 0 ? shown.Right : (shown.Left + shown.Right) / 2) * w,
+        (handle.Y < 0 ? shown.Top : handle.Y > 0 ? shown.Bottom : (shown.Top + shown.Bottom) / 2) * h);
+
+    private Handle? HandleAt(Shape shape, Point p)
+    {
         var shown = PageRotation.ToView(shape.Rect, _rotation);
         int page = shape.PageIndex;
-        double right = _left[page] + shown.Right * _w[page], bottom = _top[page] + shown.Bottom * _h[page];
-        return Math.Abs(p.X - right) <= HandleSize && Math.Abs(p.Y - bottom) <= HandleSize;
+        foreach (var handle in HandlesFor(shape.Kind))
+        {
+            var at = HandlePoint(shown, handle, _w[page], _h[page]);
+            if (Math.Abs(p.X - _left[page] - at.X) <= HandleSize && Math.Abs(p.Y - _top[page] - at.Y) <= HandleSize) return handle;
+        }
+        return null;
     }
+
+    private InputCursor CursorFor(Handle handle) =>
+        handle.X == 0 ? _resizeNs : handle.Y == 0 ? _resizeWe : handle.X == handle.Y ? _resizeNwSe : _resizeNeSw;
 
     // ---- Pointer hooks, called first by the viewer's pointer handlers; true when they took the event ----
 
@@ -172,29 +247,33 @@ public sealed partial class PdfViewer
             return true;
         }
 
-        var hit = _selected is { } selected && OnResizeHandle(selected, p) ? selected : ShapeAt(p);
+        var handle = Selected is { } selected ? HandleAt(selected, p) : null;
+        var hit = handle is null ? ShapeAt(p) : Selected;
         if (hit is null)
         {
-            if (_selected is null) return false;
-            _selected = null;
+            if (Selected is null) return false;
+            Selected = null;
             RefreshAllOverlays();
             return false;
         }
-        _selected = hit;
+        Selected = hit;
         var shown = PageRotation.ToView(hit.Rect, _rotation);
-        _drag = new ShapeDrag(hit, OnResizeHandle(hit, p), ToShownCoords(hit.PageIndex, p), shown);
+        _drag = new ShapeDrag(hit, handle, ToShownCoords(hit.PageIndex, p), shown);
         _surface.CapturePointer(e.Pointer);
         _scroller.Focus(FocusState.Pointer);
         RefreshAllOverlays();
         return true;
     }
 
-    private bool HandleShapeMove(Point p)
+    private bool HandleShapeMove(Point p, PointerRoutedEventArgs e)
     {
         if (_drawing is { } drawing)
         {
             var point = ToShownCoords(drawing.Page, p);
-            if (drawing.Tool == MarkupTool.Ink) drawing.Points.Add(point);
+            // Freehand takes every sample the pen or mouse gave since the last event, not just the newest.
+            if (drawing.Tool == MarkupTool.Ink)
+                foreach (var sample in e.GetIntermediatePoints(_surface).OrderBy(s => s.Timestamp))
+                    drawing.Points.Add(ToShownCoords(drawing.Page, sample.Position));
             else if (drawing.Points.Count == 1) drawing.Points.Add(point);
             else drawing.Points[^1] = point;
             if (_views.TryGetValue(drawing.Page, out var view)) RefreshOverlay(view);
@@ -206,24 +285,40 @@ public sealed partial class PdfViewer
             var (x, y) = ToShownCoords(page, p);
             double dx = x - drag.Start.X, dy = y - drag.Start.Y;
             var from = drag.From;
-            if (drag.Resize)
+            if (drag.Resize is { } edges)
             {
-                double width = Math.Clamp(from.Width + dx, 0.01, 1 - from.Left);
-                // Pictures keep their shape; the corner of anything else follows the pointer freely.
-                double height = drag.Shape.Kind == ShapeKind.Stamp ? width * from.Height / from.Width : Math.Clamp(from.Height + dy, 0.005, 1 - from.Top);
-                drag.Now = new NormRect(from.Left, from.Top, (float)(from.Left + width), (float)Math.Min(1, from.Top + height));
+                // The handle's edges follow the pointer; the opposite edges stay put.
+                const double min = 0.005;
+                double left = from.Left, top = from.Top, right = from.Right, bottom = from.Bottom;
+                if (edges.X < 0) left = Math.Clamp(left + dx, 0, right - min);
+                if (edges.X > 0) right = Math.Clamp(right + dx, left + min, 1);
+                if (edges.Y < 0) top = Math.Clamp(top + dy, 0, bottom - min);
+                if (edges.Y > 0) bottom = Math.Clamp(bottom + dy, top + min, 1);
+                if (drag.Shape.Kind == ShapeKind.Stamp) // pictures keep their shape: the height follows the width
+                {
+                    double height = (right - left) * from.Height / from.Width;
+                    if (edges.Y < 0) top = Math.Max(0, bottom - height);
+                    else bottom = Math.Min(1, top + height);
+                }
+                drag.Now = new NormRect((float)left, (float)top, (float)right, (float)bottom);
             }
             else
             {
                 double left = Math.Clamp(from.Left + dx, 0, 1 - from.Width), top = Math.Clamp(from.Top + dy, 0, 1 - from.Height);
                 drag.Now = new NormRect((float)left, (float)top, (float)(left + from.Width), (float)(top + from.Height));
             }
+            if (!drag.CoverRequested)
+            {
+                drag.CoverRequested = true;
+                _settling = null;
+                _ = CoverOriginalAsync(drag);
+            }
             if (_views.TryGetValue(page, out var view)) RefreshOverlay(view);
             return true;
         }
 
         InputCursor? cursor = PendingStamp is not null || _tool != MarkupTool.Select ? _placeCursor
-            : _selected is { } selected && OnResizeHandle(selected, p) ? _resizeCursor
+            : Selected is { } selected && HandleAt(selected, p) is { } handle ? CursorFor(handle)
             : ShapeAt(p) is not null ? _moveCursor
             : null;
         if (cursor is null) return false;
@@ -246,7 +341,10 @@ public sealed partial class PdfViewer
         _drag = null;
         _surface.ReleasePointerCapture(e.Pointer);
         if (drag.Now != drag.From)
+        {
+            _settling = drag;
             _ = MoveShapeAsync(drag.Shape, FromShown(drag.Now));
+        }
         else if (drag.Shape.Kind == ShapeKind.Note)
             EditNote(drag.Shape, p); // a click on a note opens it
         return true;
@@ -276,20 +374,20 @@ public sealed partial class PdfViewer
         {
             case MarkupTool.Ink:
                 if (points.Count < 2) break;
-                await EditAsync(page, () => _doc.AddInkAsync(page, [points.Select(Unrotate).ToList()], ToolStyle), select: false);
+                await EditAsync(page, () => _doc.AddInkAsync(page, [points.Select(Unrotate).ToList()], StyleFor(ShapeKind.Ink)), select: false);
                 break;
             case MarkupTool.Line or MarkupTool.Arrow:
                 if (tiny) break;
                 var strokes = new List<IReadOnlyList<(double X, double Y)>> { new[] { start, end }.Select(Unrotate).ToList() };
                 if (tool == MarkupTool.Arrow) strokes.Add(ArrowHead(page, start, end).Select(Unrotate).ToList());
                 Tool = MarkupTool.Select;
-                await EditAsync(page, () => _doc.AddInkAsync(page, strokes, ToolStyle));
+                await EditAsync(page, () => _doc.AddInkAsync(page, strokes, StyleFor(ShapeKind.Ink)));
                 break;
             case MarkupTool.Rectangle or MarkupTool.Ellipse:
                 if (tiny) break;
                 var kind = tool == MarkupTool.Rectangle ? ShapeKind.Rectangle : ShapeKind.Ellipse;
                 Tool = MarkupTool.Select;
-                await EditAsync(page, () => _doc.AddBoxAsync(page, kind, FromShown(box), ToolStyle));
+                await EditAsync(page, () => _doc.AddBoxAsync(page, kind, FromShown(box), StyleFor(kind)));
                 break;
             case MarkupTool.Crop:
                 if (box.Width < 0.02 || box.Height < 0.02) break;
@@ -311,7 +409,7 @@ public sealed partial class PdfViewer
         // Angles are right in pixels, not in the page's 0-to-1 units, so work in pixels.
         double w = _w[page], h = _h[page];
         double angle = Math.Atan2((to.Y - from.Y) * h, (to.X - from.X) * w);
-        double length = Math.Max(10, ToolStyle.LineWidth * 4) * _zoom * 96 / 72;
+        double length = Math.Max(10, StyleFor(ShapeKind.Ink).LineWidth * 4) * _zoom * 96 / 72;
         (double, double) Wing(double turn) =>
             (to.X - Math.Cos(angle + turn) * length / w, to.Y - Math.Sin(angle + turn) * length / h);
         return [Wing(0.45), to, Wing(-0.45)];
@@ -332,7 +430,7 @@ public sealed partial class PdfViewer
 
     private async Task AddNoteAsync(int page, double x, double y, Point at)
     {
-        await EditAsync(page, () => _doc.AddNoteAsync(page, x, y, "", new MarkupColor(255, 210, 0)));
+        await EditAsync(page, () => _doc.AddNoteAsync(page, x, y, "", StyleFor(ShapeKind.Note).Fill ?? new MarkupColor(255, 210, 0)));
         // Open the new note so it can be typed into; it's the newest on its page.
         if (await _doc.GetShapesAsync(page) is { Count: > 0 } shapes) EditNote(shapes[^1], at, isNew: true);
     }
@@ -350,15 +448,64 @@ public sealed partial class PdfViewer
 
     private async Task MoveShapeAsync(Shape shape, NormRect rect)
     {
+        Selected = shape with { Rect = rect }; // the handles stay with the moved copy
         await EditAsync(shape.PageIndex, () => _doc.MoveShapeAsync(shape, rect), select: false);
-        _selected = shape with { Rect = rect };
+    }
+
+    /// <summary>Renders the page under where the dragged object was, without it, to lay over the page while dragging.</summary>
+    private async Task CoverOriginalAsync(ShapeDrag drag)
+    {
+        int page = drag.Shape.PageIndex;
+        double s = RasterScale;
+        int fullW = Math.Max(1, (int)Math.Round(_w[page] * s)), fullH = Math.Max(1, (int)Math.Round(_h[page] * s));
+        var from = drag.From;
+        int left = Math.Clamp((int)(from.Left * fullW) - 2, 0, fullW - 1), top = Math.Clamp((int)(from.Top * fullH) - 2, 0, fullH - 1);
+        int right = Math.Clamp((int)Math.Ceiling(from.Right * fullW) + 2, left + 1, fullW), bottom = Math.Clamp((int)Math.Ceiling(from.Bottom * fullH) + 2, top + 1, fullH);
+        var rect = new PixelRect(left, top, right - left, bottom - top);
+        var doc = _doc;
+        RenderedBitmap rendered;
+        try
+        {
+            rendered = await doc.RenderAsync(page, fullW, fullH, rect, _rotation, WorkPriority.High, default, drag.Shape.AnnotIndex);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or PdfException)
+        {
+            return;
+        }
+        if (doc != _doc || (_drag != drag && _settling != drag)) return;
+        drag.Cover = new Image { Source = Bitmaps.ToBitmap(rendered), Stretch = Stretch.Fill, Width = rect.Width / s, Height = rect.Height / s };
+        Canvas.SetLeft(drag.Cover, rect.X / s);
+        Canvas.SetTop(drag.Cover, rect.Y / s);
+        if (_views.TryGetValue(page, out var view)) RefreshOverlay(view);
+    }
+
+    /// <summary>A page finished drawing again: a drag that ended there needs its stand-ins no more.</summary>
+    private void TilesDrawn(PageView view)
+    {
+        if (_settling is not { } settled || settled.Shape.PageIndex != view.Index || view.PendingTiles.Count > 0) return;
+        _settling = null;
+        RefreshOverlay(view);
+    }
+
+    /// <summary>Lets go of <paramref name="shape"/> if it's selected, before it's deleted: its place in the page's list goes to the next one.</summary>
+    private void Forget(Shape shape)
+    {
+        if (Selected is { } s && s.PageIndex == shape.PageIndex && s.AnnotIndex == shape.AnnotIndex) Selected = null;
+    }
+
+    /// <summary>Gives the selected object <paramref name="style"/>; it comes back selected, in front of the others.</summary>
+    public async Task RestyleSelectedAsync(ShapeStyle style)
+    {
+        if (Selected is not { Kind: not ShapeKind.Stamp } shape) return;
+        Selected = null; // its place in the page's list changes
+        await EditAsync(shape.PageIndex, () => _doc.RestyleShapeAsync(shape, style));
     }
 
     /// <summary>Deletes the selected object (the Delete key). False when none is selected.</summary>
     public bool DeleteSelectedShape()
     {
-        if (_selected is not { } shape || _textEditor is not null) return false;
-        _selected = null;
+        if (Selected is not { } shape || _textEditor is not null) return false;
+        Selected = null;
         _ = EditAsync(shape.PageIndex, () => _doc.RemoveShapeAsync(shape), select: false);
         return true;
     }
@@ -366,11 +513,11 @@ public sealed partial class PdfViewer
     /// <summary>Esc: stop placing or drawing, go back to Select, or let go of the selected object. False when there was nothing to cancel.</summary>
     public bool CancelShapeEditing()
     {
-        if (PendingStamp is null && _selected is null && _tool == MarkupTool.Select && _textEditor is null) return false;
+        if (PendingStamp is null && Selected is null && _tool == MarkupTool.Select && _textEditor is null) return false;
         if (_textEditor is not null) CloseTextEditor();
         PendingStamp = null;
         Tool = MarkupTool.Select;
-        _selected = null;
+        Selected = null;
         RefreshAllOverlays();
         return true;
     }
@@ -379,28 +526,54 @@ public sealed partial class PdfViewer
 
     private (int Page, NormRect Shown, Shape? Existing)? _editing;
 
+    /// <summary>
+    /// Arial loaded from its file. With Arial Narrow installed, a TextBox asked for "Arial" by name draws the narrow
+    /// face, as it ignores FontStretch, so typing would wrap differently from the drawn box.
+    /// </summary>
+    private static readonly string ArialFile =
+        "ms-appx:///" + System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "arial.ttf").Replace('\\', '/') + "#Arial, Arial";
+
     /// <summary>Puts a text field over <paramref name="shown"/> on <paramref name="page"/>; it's saved when it loses focus.</summary>
     private void OpenTextEditor(int page, NormRect shown, Shape? existing)
     {
         CommitTextEditor();
         double k = _zoom * 96 / 72;
-        var c = ToolStyle.Stroke;
+        var style = existing?.Style ?? StyleFor(ShapeKind.TextBox);
+        static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+        // Laid out as the engine draws the box (border, padding, font and size), and opaque so the old drawing doesn't
+        // show through. A box with no border gets a thin accent line while typing, so its edges can be seen.
+        var (borderBrush, border) = style.Stroke is { } stroke
+            ? (Brush(stroke), style.LineWidth * k)
+            : ((Brush)new SolidColorBrush(SelectionColor() with { A = 0xFF }), 1.0);
+        var background = Brush(style.Fill ?? new MarkupColor(255, 255, 255));
+        var foreground = Brush(style.TextColor ?? new MarkupColor(0, 0, 0));
         _textEditor = new TextBox
         {
             Text = existing?.Text ?? "",
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            FontSize = Math.Max(8, ToolStyle.FontSize * k),
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B)),
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x20, 0, 120, 215)),
+            FontSize = Math.Max(1, style.FontSize * k),
+            FontFamily = new FontFamily(style.Font switch { TextFont.Times => "Times New Roman", TextFont.Courier => "Courier New", _ => ArialFile }),
             Width = Math.Max(40, shown.Width * _w[page]),
+            MinWidth = 0,
             MinHeight = Math.Max(24, shown.Height * _h[page]),
-            Padding = new Thickness(2),
+            BorderThickness = new Thickness(border),
+            Padding = new Thickness(Math.Max(0, 2 * k - (style.Stroke is null ? border : 0))),
+            CornerRadius = new CornerRadius(0),
         };
+        // The theme's hover and focused looks would replace these, so set those too.
+        foreach (string state in new[] { "", "PointerOver", "Focused" })
+        {
+            _textEditor.Resources["TextControlBackground" + state] = background;
+            _textEditor.Resources["TextControlForeground" + state] = foreground;
+            _textEditor.Resources["TextControlBorderBrush" + state] = borderBrush;
+        }
+        _textEditor.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(border);
         Canvas.SetLeft(_textEditor, _left[page] + shown.Left * _w[page]);
         Canvas.SetTop(_textEditor, _top[page] + shown.Top * _h[page]);
         _editing = (page, shown, existing);
         _textEditor.LostFocus += (_, _) => CommitTextEditor();
+        _textEditor.SizeChanged += (_, _) => { if (_views.TryGetValue(page, out var view)) RefreshOverlay(view); };
         _textEditor.KeyDown += (_, e) =>
         {
             if (e.Key != Windows.System.VirtualKey.Escape) return;
@@ -433,11 +606,12 @@ public sealed partial class PdfViewer
         if (editing.Existing is { } box)
         {
             if (text == box.Text) return;
+            if (text.Length == 0) Forget(box);
             _ = EditAsync(page, () => text.Length == 0 ? _doc.RemoveShapeAsync(box) : _doc.SetShapeTextAsync(box, text), select: false);
         }
         else if (text.Length > 0)
         {
-            _ = EditAsync(page, () => _doc.AddTextBoxAsync(page, rect, text, ToolStyle));
+            _ = EditAsync(page, () => _doc.AddTextBoxAsync(page, rect, text, StyleFor(ShapeKind.TextBox)));
         }
     }
 
@@ -458,7 +632,10 @@ public sealed partial class PdfViewer
         {
             string text = box.Text.TrimEnd();
             if (deleted || (isNew && text.Length == 0))
+            {
+                Forget(note);
                 _ = EditAsync(note.PageIndex, () => _doc.RemoveShapeAsync(note), select: false);
+            }
             else if (text != note.Text)
                 _ = EditAsync(note.PageIndex, () => _doc.SetShapeTextAsync(note, text), select: false);
         };
@@ -474,35 +651,119 @@ public sealed partial class PdfViewer
             view.Overlay.Children.Add(Preview(drawing, w, h));
 
         NormRect shown;
-        bool resizable;
-        if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, resizable) = (drag.Now, drag.Shape.Kind != ShapeKind.Note);
-        else if (_selected is { } shape && shape.PageIndex == view.Index) (shown, resizable) = (PageRotation.ToView(shape.Rect, _rotation), shape.Kind != ShapeKind.Note);
+        ShapeKind kind;
+        if (_textEditor is { } editor && _editing is { } editing && editing.Page == view.Index)
+        {
+            // While typing, the handles follow the text field as it grows a line at a time.
+            float bottom = (float)Math.Min(1, editing.Shown.Top + Math.Max(editing.Shown.Height, editor.ActualHeight / h));
+            (shown, kind) = (editing.Shown with { Bottom = bottom }, ShapeKind.TextBox);
+        }
+        else if (_drag is { } drag && drag.Shape.PageIndex == view.Index) (shown, kind) = (drag.Now, drag.Shape.Kind);
+        else if (Selected is { } shape && shape.PageIndex == view.Index) (shown, kind) = (PageRotation.ToView(shape.Rect, _rotation), shape.Kind);
         else return;
 
+        // As in Preview: dots at the corners and edge middles, and no frame. A note has no handles, so it gets a frame.
         var accent = new SolidColorBrush(SelectionColor() with { A = 0xFF });
-        var frame = new Rectangle
+        if ((_drag ?? _settling) is { } moving && moving.Shape.PageIndex == view.Index && moving.Now != moving.From)
         {
-            Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3],
-            Width = Math.Max(1, shown.Width * w), Height = Math.Max(1, shown.Height * h),
-        };
-        Canvas.SetLeft(frame, shown.Left * w);
-        Canvas.SetTop(frame, shown.Top * h);
-        view.Overlay.Children.Add(frame);
-        if (!resizable) return;
-        var handle = new Rectangle { Fill = accent, Width = HandleSize, Height = HandleSize, RadiusX = 2, RadiusY = 2 };
-        Canvas.SetLeft(handle, shown.Right * w - HandleSize / 2);
-        Canvas.SetTop(handle, shown.Bottom * h - HandleSize / 2);
-        view.Overlay.Children.Add(handle);
+            if (moving.Cover is { } cover) view.Overlay.Children.Add(cover);
+            view.Overlay.Children.Add(Ghost(moving, w, h, accent));
+        }
+        if (kind == ShapeKind.Note)
+        {
+            var frame = new Rectangle
+            {
+                Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3],
+                Width = Math.Max(1, shown.Width * w), Height = Math.Max(1, shown.Height * h),
+            };
+            Canvas.SetLeft(frame, shown.Left * w);
+            Canvas.SetTop(frame, shown.Top * h);
+            view.Overlay.Children.Add(frame);
+        }
+        foreach (var handle in HandlesFor(kind))
+        {
+            var at = HandlePoint(shown, handle, w, h);
+            var dot = new Ellipse { Width = 9, Height = 9, Fill = accent, Stroke = new SolidColorBrush(Microsoft.UI.Colors.White), StrokeThickness = 1.5 };
+            Canvas.SetLeft(dot, at.X - 4.5);
+            Canvas.SetTop(dot, at.Y - 4.5);
+            view.Overlay.Children.Add(dot);
+        }
+    }
+
+    /// <summary>
+    /// The object being moved or resized, drawn at its new place and size so it follows the pointer, as in Preview.
+    /// The page keeps drawing the object where it was until the pointer lets go.
+    /// </summary>
+    private FrameworkElement Ghost(ShapeDrag drag, double w, double h, Brush accent)
+    {
+        var (shape, from, now) = (drag.Shape, drag.From, drag.Now);
+        var s = shape.Style ?? StyleFor(shape.Kind);
+        double k = _zoom * 96 / 72;
+        static Brush? Paint(MarkupColor? c) => c is { } v ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, v.R, v.G, v.B)) : null;
+        var black = new MarkupColor(0, 0, 0);
+        FrameworkElement element;
+        switch (shape.Kind)
+        {
+            case ShapeKind.Rectangle or ShapeKind.Ellipse:
+                Microsoft.UI.Xaml.Shapes.Shape box = shape.Kind == ShapeKind.Ellipse ? new Ellipse() : new Rectangle();
+                box.Stroke = Paint(s.Stroke);
+                box.StrokeThickness = s.Stroke is null ? 0 : Math.Max(1, s.LineWidth * k);
+                box.Fill = Paint(s.Fill);
+                element = box;
+                break;
+            case ShapeKind.Ink when shape.Ink is { } strokes:
+                // Each point keeps its place within the box, as the engine scales ink on a resize.
+                (double X, double Y) Map((double X, double Y) p)
+                {
+                    var (x, y) = PageRotation.ToView(p.X, p.Y, _rotation);
+                    return ((x - from.Left) / from.Width * now.Width * w, (y - from.Top) / from.Height * now.Height * h);
+                }
+                var geometry = new PathGeometry();
+                foreach (var points in strokes.Where(p => p.Count > 0).Select(p => p.Select(Map).ToList()))
+                {
+                    var figure = new PathFigure { StartPoint = new Point(points[0].X, points[0].Y) };
+                    foreach (var (c1, c2, end) in InkCurve.Segments(points))
+                        figure.Segments.Add(new BezierSegment { Point1 = new(c1.X, c1.Y), Point2 = new(c2.X, c2.Y), Point3 = new(end.X, end.Y) });
+                    geometry.Figures.Add(figure);
+                }
+                element = new Microsoft.UI.Xaml.Shapes.Path
+                {
+                    Data = geometry, Stroke = Paint(s.Stroke ?? black), StrokeThickness = Math.Max(1, s.LineWidth * k),
+                    StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
+                break;
+            case ShapeKind.TextBox:
+                element = new Border
+                {
+                    Background = Paint(s.Fill), BorderBrush = Paint(s.Stroke),
+                    BorderThickness = new Thickness(s.Stroke is null ? 0 : s.LineWidth * k), Padding = new Thickness(2 * k),
+                    Child = new TextBlock
+                    {
+                        Text = shape.Text, TextWrapping = TextWrapping.Wrap, FontSize = Math.Max(1, s.FontSize * k),
+                        FontFamily = new FontFamily(s.Font switch { TextFont.Times => "Times New Roman", TextFont.Courier => "Courier New", _ => "Arial" }),
+                        FontStretch = Windows.UI.Text.FontStretch.Normal, Foreground = Paint(s.TextColor ?? black),
+                    },
+                };
+                break;
+            default: // pictures and notes: an outline where they go
+                element = new Rectangle { Stroke = accent, StrokeThickness = 1.5, StrokeDashArray = [4, 3] };
+                break;
+        }
+        element.Width = Math.Max(1, now.Width * w);
+        element.Height = Math.Max(1, now.Height * h);
+        Canvas.SetLeft(element, now.Left * w);
+        Canvas.SetTop(element, now.Top * h);
+        return element;
     }
 
     /// <summary>What the tool would draw, in the current style, while the pointer is still down.</summary>
     private Microsoft.UI.Xaml.Shapes.Shape Preview(Drawing drawing, double w, double h)
     {
         double k = _zoom * 96 / 72;
-        var s = ToolStyle;
-        var stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, s.Stroke.R, s.Stroke.G, s.Stroke.B));
+        var s = KindOf(drawing.Tool) is { } kind ? StyleFor(kind) : new ShapeStyle(null);
+        Brush? stroke = s.Stroke is { } c ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B)) : null;
         Brush? fill = s.Fill is { } f ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, f.R, f.G, f.B)) : null;
-        double thickness = Math.Max(1, s.LineWidth * k);
+        double thickness = s.Stroke is null ? 0 : Math.Max(1, s.LineWidth * k);
         Point Px((double X, double Y) p) => new(p.X * w, p.Y * h);
 
         switch (drawing.Tool)
@@ -520,6 +781,16 @@ public sealed partial class PdfViewer
                 Canvas.SetLeft(shape, box.Left * w);
                 Canvas.SetTop(shape, box.Top * h);
                 return shape;
+            case MarkupTool.Ink:
+                // The same curve the page gets once the pen lifts.
+                var figure = new PathFigure { StartPoint = Px(drawing.Start) };
+                foreach (var (c1, c2, end) in InkCurve.Segments(drawing.Points))
+                    figure.Segments.Add(new BezierSegment { Point1 = Px(c1), Point2 = Px(c2), Point3 = Px(end) });
+                return new Microsoft.UI.Xaml.Shapes.Path
+                {
+                    Data = new PathGeometry { Figures = { figure } }, Stroke = stroke, StrokeThickness = thickness,
+                    StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
             default:
                 var line = new Polyline { Stroke = stroke, StrokeThickness = thickness, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
                 IEnumerable<(double X, double Y)> points = drawing.Tool == MarkupTool.Ink ? drawing.Points : [drawing.Start, drawing.End];

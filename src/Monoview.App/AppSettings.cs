@@ -35,11 +35,8 @@ public sealed class AppSettings
     public string MarkupKind { get; set; } = "Highlight";
     public string MarkupColor { get; set; } = "Yellow";
 
-    /// <summary>Style for the markup bar's shapes, ink and text boxes; colors as palette names or "#RRGGBB", no fill when empty.</summary>
-    public string ShapeStroke { get; set; } = "Red";
-    public string ShapeFill { get; set; } = "";
-    public float ShapeLineWidth { get; set; } = 2;
-    public float ShapeFontSize { get; set; } = 14;
+    /// <summary>The style of the next object from the markup bar, per kind: Ink, Rectangle (ellipses too), TextBox and Note.</summary>
+    public Dictionary<Monoview.Engine.ShapeKind, Monoview.Engine.ShapeStyle> ShapeStyles { get; set; } = new();
 
     /// <summary>Whether the markup bar, the second toolbar row, is shown.</summary>
     public bool MarkupBarVisible { get; set; }

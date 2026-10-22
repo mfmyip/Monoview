@@ -189,8 +189,9 @@ public sealed partial class PdfViewer
         _markups.Clear();
         _shapes.Clear();
         _pressedMarkup = null;
-        _selected = null;
+        Selected = null;
         _drag = null;
+        _settling = null;
         _drawing = null;
         foreach (var view in _views.Values)
         {
