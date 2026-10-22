@@ -93,7 +93,7 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
     <td><b>Page editing.</b> Turn on Edit pages, then drag thumbnails to reorder, or copy, rotate and delete pages.</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/markup-dark.png" alt="The markup bar in the dark theme, with shapes, ink, a note and a selected text box"></td>
+    <td width="50%"><img src="docs/images/markup-dark.png" alt="The markup bar in the dark theme, with shapes, ink, a note and a text box"></td>
     <td width="50%"><img src="docs/images/live-text-light.png" alt="Search finding a word in a photographed café receipt"></td>
   </tr>
   <tr>
