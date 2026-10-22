@@ -223,6 +223,17 @@ public class ShapeTests
     }
 
     [Fact]
+    public async Task Object_added_over_a_form_field_is_drawn_on_top_of_it()
+    {
+        using var doc = await PdfDocument.OpenAsync(FormPdf.Path);
+        var box = FormPdf.AgreeBox;
+        double edgeX = box.Left + 0.6 / 612, middleY = (box.Top + box.Bottom) / 2; // on the check box's drawn border
+        Assert.False(IsWhite(Pixel(await Render(doc), edgeX, middleY)), "the field's border shows first");
+        await doc.AddBoxAsync(0, ShapeKind.Rectangle, new NormRect(box.Left - 0.02f, box.Top - 0.02f, box.Right + 0.02f, box.Bottom + 0.02f), new ShapeStyle(null, Blue));
+        Assert.True(IsBlue(Pixel(await Render(doc), edgeX, middleY)), "the rectangle covers the field");
+    }
+
+    [Fact]
     public async Task Shapes_survive_save()
     {
         string path = Path.Combine(Path.GetTempPath(), $"monoview-shapes-{Guid.NewGuid():N}.pdf");

@@ -139,32 +139,60 @@ public sealed partial class PdfDocument : IDisposable
         return PdfiumThread.Run(() =>
         {
             var page = GetPage(pageIndex);
-            IntPtr hidden = hideAnnot is { } index ? FPDFPage_GetAnnot(page.__Instance, index) : IntPtr.Zero;
-            int flags = hidden == IntPtr.Zero ? 0 : FPDFAnnot_GetFlags(hidden);
-            if (hidden != IntPtr.Zero) FPDFAnnot_SetFlags(hidden, flags | AnnotFlagHidden);
+            var left = hideAnnot is { } index ? new[] { index } : [];
+            void Render(byte[] into, IReadOnlyList<int> hidden, bool form) =>
+                RenderRegion(page, into, region, fullWidth, fullHeight, rotate, hidden, form);
             var pixels = new byte[region.Width * 4 * region.Height];
-            var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
-            var bitmap = fpdfview.FPDFBitmapCreateEx(region.Width, region.Height, BitmapFormatBgra,
-                handle.AddrOfPinnedObject(), region.Width * 4);
-            try
+            // The form layer is drawn over the page, so form fields would cover every object added after them.
+            // Draw those objects back over it: they are what changes when they're drawn.
+            var above = _form == IntPtr.Zero ? [] : ObjectsAboveFormFields(page.__Instance).Except(left).ToArray();
+            if (above.Length == 0)
             {
-                fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
-                fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, rotate,
-                    RenderFlagAnnot | RenderFlagLcdText);
-                DrawForm(bitmap.__Instance, page.__Instance, -region.X, -region.Y, fullWidth, fullHeight, rotate, RenderFlagAnnot | RenderFlagLcdText);
+                Render(pixels, left, form: true);
+                return new RenderedBitmap(region.Width, region.Height, pixels);
             }
-            finally
-            {
-                fpdfview.FPDFBitmapDestroy(bitmap);
-                handle.Free();
-                if (hidden != IntPtr.Zero)
-                {
-                    FPDFAnnot_SetFlags(hidden, flags);
-                    FPDFPage_CloseAnnot(hidden);
-                }
-            }
+            Render(pixels, [.. left, .. above], form: false);
+            var without = (byte[])pixels.Clone();
+            var with = new byte[pixels.Length];
+            Render(with, left, form: false);
+            Render(pixels, [.. left, .. above], form: true);
+            for (int i = 0; i < pixels.Length; i += 4)
+                if (with[i] != without[i] || with[i + 1] != without[i + 1] || with[i + 2] != without[i + 2])
+                    Buffer.BlockCopy(with, i, pixels, i, 4);
             return new RenderedBitmap(region.Width, region.Height, pixels);
         }, priority, ct);
+    }
+
+    /// <summary>
+    /// Renders <paramref name="region"/> into <paramref name="pixels"/> with the <paramref name="hidden"/>
+    /// annotations left out for this render only, and with the form layer when <paramref name="form"/>.
+    /// </summary>
+    private void RenderRegion(FpdfPageT page, byte[] pixels, PixelRect region, int fullWidth, int fullHeight, int rotate,
+        IReadOnlyList<int> hidden, bool form)
+    {
+        var annots = hidden.Select(i => FPDFPage_GetAnnot(page.__Instance, i)).Where(a => a != IntPtr.Zero).ToList();
+        var flags = annots.Select(FPDFAnnot_GetFlags).ToList();
+        foreach (var (annot, f) in annots.Zip(flags)) FPDFAnnot_SetFlags(annot, f | AnnotFlagHidden);
+        var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        var bitmap = fpdfview.FPDFBitmapCreateEx(region.Width, region.Height, BitmapFormatBgra,
+            handle.AddrOfPinnedObject(), region.Width * 4);
+        try
+        {
+            fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
+            fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, rotate,
+                RenderFlagAnnot | RenderFlagLcdText);
+            if (form) DrawForm(bitmap.__Instance, page.__Instance, -region.X, -region.Y, fullWidth, fullHeight, rotate, RenderFlagAnnot | RenderFlagLcdText);
+        }
+        finally
+        {
+            fpdfview.FPDFBitmapDestroy(bitmap);
+            handle.Free();
+            foreach (var (annot, f) in annots.Zip(flags))
+            {
+                FPDFAnnot_SetFlags(annot, f);
+                FPDFPage_CloseAnnot(annot);
+            }
+        }
     }
 
     /// <summary>Renders a whole page to fit the given pixel size.</summary>

@@ -44,7 +44,7 @@ public sealed record Shape(int PageIndex, int AnnotIndex, ShapeKind Kind, NormRe
 /// </summary>
 public sealed partial class PdfDocument
 {
-    private const int AnnotText = 1, AnnotFreeText = 3, AnnotSquare = 5, AnnotCircle = 6, AnnotStamp = 13, AnnotInk = 15;
+    private const int AnnotText = 1, AnnotFreeText = 3, AnnotSquare = 5, AnnotCircle = 6, AnnotStamp = 13, AnnotInk = 15, AnnotWidget = 20;
     private const int ColorTypeInterior = 1; // FPDFANNOT_COLORTYPE_InteriorColor
     private const float NoteSize = 20;       // points; notes show as an icon of this size
     private const int AnnotFlagHidden = 2;   // FPDF_ANNOT_FLAG_HIDDEN
