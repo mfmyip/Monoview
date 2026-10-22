@@ -351,17 +351,27 @@
             <!-- Tabs float as pills over the toolbar's ground, like the cards below, so none has to join the page.
                  The selected tab takes TabViewItemHeaderBackground; its flared shape is hidden. MakePill does the rest. -->
             <TabView.Resources>
-                <!-- A small close button, like Chrome's, so a click meant for the tab rarely closes it. -->
-                <x:Double x:Key="TabViewItemHeaderCloseButtonWidth">18</x:Double>
-                <x:Double x:Key="TabViewItemHeaderCloseButtonHeight">18</x:Double>
-                <x:Double x:Key="TabViewItemHeaderCloseFontSize">10</x:Double>
-                <Thickness x:Key="TabViewItemHeaderCloseMargin">8,0,2,0</Thickness>
-                <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
-                <SolidColorBrush x:Key="TabViewItemHeaderBackgroundSelected" Color="Transparent" />
-                <SolidColorBrush x:Key="TabViewItemSeparator" Color="Transparent" />
-                <Thickness x:Key="TabViewSelectedItemHeaderMargin">0,4,0,4</Thickness>
-                <SolidColorBrush x:Key="TabViewBorderBrush" Color="Transparent" />
-                <SolidColorBrush x:Key="TabViewSelectedItemBorderBrush" Color="Transparent" />
+                <ResourceDictionary>
+                    <!-- The sidebar's color, per theme: one StaticResource here is fixed at startup, so it ignored the Theme setting. -->
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Light">
+                            <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Dark">
+                            <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                    <!-- A small close button, like Chrome's, so a click meant for the tab rarely closes it. -->
+                    <x:Double x:Key="TabViewItemHeaderCloseButtonWidth">18</x:Double>
+                    <x:Double x:Key="TabViewItemHeaderCloseButtonHeight">18</x:Double>
+                    <x:Double x:Key="TabViewItemHeaderCloseFontSize">10</x:Double>
+                    <Thickness x:Key="TabViewItemHeaderCloseMargin">8,0,2,0</Thickness>
+                    <SolidColorBrush x:Key="TabViewItemHeaderBackgroundSelected" Color="Transparent" />
+                    <SolidColorBrush x:Key="TabViewItemSeparator" Color="Transparent" />
+                    <Thickness x:Key="TabViewSelectedItemHeaderMargin">0,4,0,4</Thickness>
+                    <SolidColorBrush x:Key="TabViewBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="TabViewSelectedItemBorderBrush" Color="Transparent" />
+                </ResourceDictionary>
             </TabView.Resources>
         </TabView>
 
