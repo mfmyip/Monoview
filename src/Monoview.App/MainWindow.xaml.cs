@@ -526,18 +526,13 @@ public sealed partial class MainWindow : Window
     private void StrikeButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.StrikeOut);
 
     /// <summary>The color panel under the highlighter's arrow; the color is shared by all three marking buttons.</summary>
-    private void HighlightMenu_Opening(object? sender, object e)
-    {
-        var c = MarkupPalette.Current;
-        var colors = MarkupPalette.ColorRow(HighlightMenu, c, color =>
+    private void HighlightMenu_Opening(object? sender, object e) =>
+        HighlightMenu.Content = MarkupPalette.ColorPanel(HighlightMenu, MarkupPalette.Current, hasNone: false, color =>
         {
-            AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color);
+            AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color!.Value);
             AppSettings.Save();
             UpdateHighlightSwatch();
         });
-
-        HighlightMenu.Content = colors;
-    }
 
     // ---------------- Signatures ----------------
 
@@ -1085,6 +1080,7 @@ public sealed partial class MainWindow : Window
         if (!ReferenceEquals(FocusedElement(), PageBox))
             PageBox.Text = viewer is null ? "" : (viewer.CurrentPage + 1).ToString();
         PageCountLabel.Text = viewer is null ? "" : $"of {viewer.PageCount}";
+        if (viewer is not null) CurrentView!.ShowPageNumber(viewer.CurrentPage + 1, viewer.PageCount);
     }
 
     private void UpdateZoomLabel() => ZoomLabel.Text = CurrentView is { } v ? $"{v.Viewer.Zoom * 100:0}%" : "";

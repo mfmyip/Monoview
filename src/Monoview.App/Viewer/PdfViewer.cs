@@ -116,6 +116,7 @@ public sealed partial class PdfViewer : UserControl
         PreviewKeyDown += OnPreviewKeyDown;
         CharacterReceived += OnCharacterReceived;
         AttachForm(doc);
+        _surface.ContextRequested += OnContextRequested;
         _surface.ContextFlyout = BuildContextMenu();
 
         _settleTimer = DispatcherQueue.CreateTimer();
@@ -925,6 +926,7 @@ public sealed partial class PdfViewer : UserControl
             return;
         }
         if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
+        UpdateCommentTip(point.Position);
 
         if (LinkAt(point.Position) is not null)
         {

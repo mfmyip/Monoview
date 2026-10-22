@@ -160,6 +160,12 @@
         <!-- A card beside the sidebar card, with a gutter between that the splitter sits in. -->
         <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="10" Margin="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
 
+        <!-- The page number over the page area's bottom-right corner, clear of the scroll bar. -->
+        <Border Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,16"
+                Padding="10,4" CornerRadius="12" Background="#99000000" IsHitTestVisible="False">
+            <TextBlock x:Name="PageNumber" Foreground="White" FontSize="12" />
+        </Border>
+
         <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->
         <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="1,0,0,0"
                 HorizontalAlignment="Left" Background="Transparent"

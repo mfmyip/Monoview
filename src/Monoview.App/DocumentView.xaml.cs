@@ -75,6 +75,8 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
     public void ToggleSidebar() => SetSidebarVisible(!IsSidebarVisible);
 
+    public void ShowPageNumber(int page, int count) => PageNumber.Text = $"{page} of {count}";
+
     public void SetSidebarVisible(bool visible)
     {
         Sidebar.Visibility = SidebarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
