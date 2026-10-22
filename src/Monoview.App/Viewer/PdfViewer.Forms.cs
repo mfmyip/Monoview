@@ -115,6 +115,11 @@ public sealed partial class PdfViewer
     private bool HandleFormPress(PointerRoutedEventArgs e, Point p)
     {
         if (!_doc.HasForm || _tool != MarkupTool.Select || PendingStamp is not null) return false;
+        if (ObjectOverField(p))
+        {
+            if (_formFocused) _ = LeaveFieldAsync();
+            return false;
+        }
         if (FieldAt(p) is not { } field)
         {
             if (!_formFocused) return false;
@@ -222,7 +227,7 @@ public sealed partial class PdfViewer
             _ = _doc.FormPointerAsync(page, FormPointer.Move, x, y); // drag-selects text in the field
             return true;
         }
-        if (_tool != MarkupTool.Select || PendingStamp is not null) return false;
+        if (_tool != MarkupTool.Select || PendingStamp is not null || ObjectOverField(p)) return false;
         var field = FieldAt(p);
         // With a field focused, a click elsewhere goes to the form (an open drop-down list), not to text selection.
         if (field is null && !_formFocused) return false;
@@ -234,11 +239,18 @@ public sealed partial class PdfViewer
 
     private bool HandleFormDoubleTap(Point p)
     {
-        if (FieldAt(p) is not { } field) return false;
+        if (ObjectOverField(p) || FieldAt(p) is not { } field) return false;
         var (x, y) = ToPageCoords(field.PageIndex, p);
         _ = _doc.FormPointerAsync(field.PageIndex, FormPointer.DoubleClick, x, y); // selects a word
         return true;
     }
+
+    /// <summary>
+    /// An object drawn over the form field at <paramref name="p"/>, or with no field there: it comes after the field in
+    /// the page's order, so it's on top and gets the pointer, as it would in any reader.
+    /// </summary>
+    private bool ObjectOverField(Point p) =>
+        ShapeAt(p) is { } shape && (FieldAt(p) is not { } field || shape.AnnotIndex > field.AnnotIndex);
 
     /// <summary>Leaves the focused field, keeping what was typed.</summary>
     private async Task LeaveFieldAsync()

@@ -234,6 +234,21 @@ public class ShapeTests
     }
 
     [Fact]
+    public async Task Clicking_an_object_through_the_form_shows_no_pop_up_note()
+    {
+        using var doc = await PdfDocument.OpenAsync(FormPdf.Path);
+        var f = FormPdf.NameField;
+        await doc.AddTextBoxAsync(0, new NormRect(f.Left, f.Top - 0.05f, f.Right, f.Bottom + 0.05f), "hello there", new ShapeStyle(null, Blue));
+        double x = (f.Left + f.Right) / 2, y = f.Top - 0.03;
+        await doc.FormPointerAsync(0, FormPointer.Down, x, y);
+        await doc.FormPointerAsync(0, FormPointer.Move, x, y - 0.01);
+        await doc.FormPointerAsync(0, FormPointer.Up, x, y - 0.01);
+        var bmp = await Render(doc);
+        int yellow = Enumerable.Range(0, bmp.Bgra.Length / 4).Count(i => bmp.Bgra[i * 4 + 2] > 230 && bmp.Bgra[i * 4 + 1] > 230 && bmp.Bgra[i * 4] < 60);
+        Assert.Equal(0, yellow);
+    }
+
+    [Fact]
     public async Task Shapes_survive_save()
     {
         string path = Path.Combine(Path.GetTempPath(), $"monoview-shapes-{Guid.NewGuid():N}.pdf");

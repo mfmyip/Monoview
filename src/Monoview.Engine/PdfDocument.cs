@@ -181,7 +181,8 @@ public sealed partial class PdfDocument : IDisposable
             fpdfview.FPDFBitmapFillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
             fpdfview.FPDF_RenderPageBitmap(bitmap, page, -region.X, -region.Y, fullWidth, fullHeight, rotate,
                 RenderFlagAnnot | RenderFlagLcdText);
-            if (form) DrawForm(bitmap.__Instance, page.__Instance, -region.X, -region.Y, fullWidth, fullHeight, rotate, RenderFlagAnnot | RenderFlagLcdText);
+            // Without FPDF_ANNOT: with it, the form layer also draws the pop-up note PDFium opens for any object the mouse is over.
+            if (form) DrawForm(bitmap.__Instance, page.__Instance, -region.X, -region.Y, fullWidth, fullHeight, rotate, RenderFlagLcdText);
         }
         finally
         {
