@@ -250,7 +250,7 @@ public sealed partial class MainWindow
                 ? new Border { Background = Brush(c), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)), BorderThickness = new Thickness(c is { R: > 240, G: > 240, B: > 240 } ? 1 : 0) }
                 : new Grid { Background = Brush(new MarkupColor(255, 255, 255)), Children = { new Microsoft.UI.Xaml.Shapes.Path
                     {
-                        Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), FormattableString.Invariant($"M1,{size - 1} L{size - 1},1")),
+                        Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M0,10 L10,0"), Stretch = Stretch.Fill, Margin = new Thickness(1), // fits the cell, ringed or not
                         Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28)), StrokeThickness = 1.5,
                     } } };
             var button = new Button
