@@ -85,20 +85,20 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/markup-dark.png" alt="The markup bar with shapes, ink, a note and a text box"></td>
     <td width="50%"><img src="docs/images/sign-light.png" alt="A service agreement with a signature placed on the client line"></td>
+    <td width="50%"><img src="docs/images/pages-light.png" alt="Edit pages mode on a four-page proposal, with the page thumbnails ready to drag"></td>
   </tr>
   <tr>
-    <td><b>Markup bar.</b> Draw, add shapes, text boxes and notes, then move or resize them.</td>
     <td><b>Signatures.</b> Draw, type or import a signature, then place it with one click.</td>
+    <td><b>Page editing.</b> Turn on Edit pages, then drag thumbnails to reorder, or copy, rotate and delete pages.</td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/markup-dark.png" alt="The markup bar in the dark theme, with shapes, ink, a note and a selected text box"></td>
     <td width="50%"><img src="docs/images/live-text-light.png" alt="Search finding a word in a photographed café receipt"></td>
-    <td width="50%"><img src="docs/images/tabs-dark.png" alt="Two tabs and two-page view in the dark theme"></td>
   </tr>
   <tr>
+    <td><b>Markup bar.</b> Shapes, ink, notes and text boxes, with line, border, fill and text style for the selected one.</td>
     <td><b>Live text.</b> Search, select and copy text in pictures and scans.</td>
-    <td><b>Dark theme and tabs.</b> Open many documents and read spreads side by side.</td>
   </tr>
 </table>
 
@@ -167,7 +167,7 @@ Or get the latest version from [GitHub Releases](https://github.com/mfmyip/Monov
 
 | File | What it is |
 |---|---|
-| `Monoview-x.y.z-setup.exe` | The installer. It asks whether to install just for you, with no admin prompt, or for everyone, and where. Options: a desktop shortcut, "Open with" for PDF, PNG and JPG, and checking for updates. Uninstall from Settings > Apps. |
+| `Monoview-x.y.z-setup.exe` | The installer. It asks whether to install just for you, with no admin prompt, or for everyone, and where. Options: a desktop shortcut, "Open with" for PDF, PNG and JPG, making Monoview your default PDF app, and checking for updates. Uninstall from Settings > Apps. |
 | `Monoview-x.y.z-win-x64.msi` | The same install as a plain MSI, for scripts and IT. A silent install, `msiexec /i Monoview-x.y.z-win-x64.msi /qn`, installs just for you; set `ALLUSERS=1`, `APPLICATIONFOLDER`, `DESKTOPSHORTCUT=1`, `OPENWITH=0` or `CHECKFORUPDATES=0` to change that. |
 | `Monoview-x.y.z-win-x64.zip` | The portable app. Unzip it anywhere and run `Monoview.exe`; nothing is installed. |
 

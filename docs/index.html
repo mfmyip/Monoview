@@ -51,7 +51,7 @@ html{scroll-behavior:smooth}
   <div style="max-width: 1160px; margin: 0 auto; padding: 72px 24px 48px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 22px">
     <div style="display: inline-flex; align-items: center; gap: 8px; background: #ffffff; border: 1px solid #D5DEEA; border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 500; color: #334155">
       <span style="width: 8px; height: 8px; border-radius: 50%; background: #2E8B57"></span>
-      Version 0.2.0 for Windows 10 and 11
+      Version 0.3.0 for Windows 10 and 11
     </div>
     <h1 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: clamp(2.6rem, 6vw, 4.6rem); line-height: 1.02; letter-spacing: -0.035em; max-width: 880px">Preview for Windows.</h1>
     <p style="margin: 0; font-size: clamp(1.05rem, 2vw, 1.3rem); color: #3D4B66; max-width: 660px">Monoview is a fast, clean viewer for PDFs and pictures, modeled on macOS Preview. Open a file, read it, mark it up, sign it or fill it in, and get on with your day.</p>
@@ -59,7 +59,7 @@ html{scroll-behavior:smooth}
       <a href="https://apps.microsoft.com/detail/9N8G6JSG2MH6?mode=direct" style="display: inline-flex; align-items: center"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" style="height: 52px; width: auto; display: block"></a>
       <a class="btn-ghost" href="https://github.com/mfmyip/Monoview" style="background: #ffffff; color: #0B2545; text-decoration: none; font-weight: 600; font-size: 17px; padding: 14px 26px; border-radius: 12px; border: 1px solid #C9D4E3; min-height: 52px; box-sizing: border-box; display: inline-flex; align-items: center">View source</a>
     </div>
-    <p style="margin: 0; font-size: 14px; color: #4A5873">Free and open source under the MIT License. No account, no ads, no telemetry. Prefer an installer? <a href="https://github.com/mfmyip/Monoview/releases/latest">Get the MSI or zip on GitHub</a>.</p>
+    <p style="margin: 0; font-size: 14px; color: #4A5873">Free and open source under the MIT License. No account, no ads, no telemetry. Prefer an installer? <a href="https://github.com/mfmyip/Monoview/releases/latest">Get setup.exe or the zip on GitHub</a>.</p>
   </div>
 
   <!-- Hero shot -->
@@ -136,18 +136,22 @@ html{scroll-behavior:smooth}
         <div style="font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9DBDE6">Screenshots</div>
         <h2 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: clamp(2rem, 4vw, 2.8rem); line-height: 1.1; letter-spacing: -0.025em">Light or dark, it feels at home on Windows.</h2>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 24px">
         <div style="display: flex; flex-direction: column; gap: 12px">
           <img loading="lazy" src="images/sign-light.png" alt="A service agreement with a signature placed on the client line" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
           <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Signatures.</strong> Draw, type or import one, then place it with a click.</div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 12px">
-          <img loading="lazy" src="images/live-text-light.png" alt="Search finding a word in a photographed café receipt" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
-          <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Live text.</strong> Search and copy text in pictures and scans.</div>
+          <img loading="lazy" src="images/pages-light.png" alt="Edit pages mode on a four-page proposal, with the page thumbnails ready to drag" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
+          <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Page editing.</strong> Drag thumbnails to reorder, or copy, rotate and delete pages.</div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 12px">
-          <img loading="lazy" src="images/tabs-dark.png" alt="Two tabs and two-page view in the dark theme" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
-          <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Dark theme and tabs.</strong> Many documents, spreads side by side.</div>
+          <img loading="lazy" src="images/markup-dark.png" alt="The markup bar in the dark theme, with shapes, ink, a note and a selected text box" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
+          <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Markup bar.</strong> Shapes, ink, notes and text boxes, each with its own style.</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <img loading="lazy" src="images/live-text-light.png" alt="Search finding a word in a photographed café receipt" style="display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid #23406A">
+          <div style="font-size: 15px; color: #C3D3EA"><strong style="color: #ffffff">Live text.</strong> Search and copy text in pictures and scans.</div>
         </div>
       </div>
     </div>
@@ -189,12 +193,12 @@ html{scroll-behavior:smooth}
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px">
       <div style="background: #ffffff; border: 1px solid #D5DEEA; border-radius: 16px; padding: 28px; display: flex; flex-direction: column; gap: 10px">
         <div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 22px">Installer</div>
-        <code style="font-family: Consolas, 'Cascadia Mono', monospace; font-size: 14px; color: #3D4B66">Monoview-0.2.0-win-x64.msi</code>
-        <p style="margin: 0; color: #3D4B66">Installs for you only, with no admin prompt. Adds Monoview to the Start menu and to Open with for PDF, PNG and JPG.</p>
+        <code style="font-family: Consolas, 'Cascadia Mono', monospace; font-size: 14px; color: #3D4B66">Monoview-0.3.0-setup.exe</code>
+        <p style="margin: 0; color: #3D4B66">Installs for you or for everyone, where you choose. Adds Monoview to the Start menu and Open with, and can make it your default PDF app.</p>
       </div>
       <div style="background: #ffffff; border: 1px solid #D5DEEA; border-radius: 16px; padding: 28px; display: flex; flex-direction: column; gap: 10px">
         <div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 22px">Portable</div>
-        <code style="font-family: Consolas, 'Cascadia Mono', monospace; font-size: 14px; color: #3D4B66">Monoview-0.2.0-win-x64.zip</code>
+        <code style="font-family: Consolas, 'Cascadia Mono', monospace; font-size: 14px; color: #3D4B66">Monoview-0.3.0-win-x64.zip</code>
         <p style="margin: 0; color: #3D4B66">Unzip it anywhere and run Monoview.exe. Nothing is installed, and .NET is included.</p>
       </div>
     </div>
