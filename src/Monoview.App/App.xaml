@@ -12,12 +12,10 @@
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#FBFBFB" />
                     <SolidColorBrush x:Key="PanelStrokeBrush" Color="#D6D6D9" />
-                    <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#2C2C2C" />
                     <SolidColorBrush x:Key="PanelStrokeBrush" Color="#3E3F44" />
-                    <StaticResource x:Key="TabViewItemHeaderBackground" ResourceKey="PanelSurfaceBrush" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
