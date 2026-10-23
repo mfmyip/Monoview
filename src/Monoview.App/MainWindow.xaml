@@ -1,4 +1,4 @@
-<Window
+﻿<Window
     x:Class="Monoview.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -261,19 +261,16 @@
                     </Button>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
                     <!-- Highlight, underline, strikethrough: a click marks the selection, or with none turns that marking mode on.
-                         The highlighter's arrow picks the color all three use. -->
-                    <ToggleSplitButton x:Name="HighlightButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0"
-                                       CornerRadius="4" IsCheckedChanged="HighlightButton_IsCheckedChanged"
-                                       ToolTipService.ToolTip="Highlight (Ctrl+H). With no text selected, turns highlighting on or off."
-                                       AutomationProperties.Name="Highlight">
+                         The color button after them picks the color all three use; separators make the four one section. -->
+                    <ToggleButton x:Name="HighlightButton" Height="32" Width="32" Padding="0" Background="Transparent" BorderThickness="0"
+                                  CornerRadius="4" Click="HighlightButton_Click"
+                                  ToolTipService.ToolTip="Highlight (Ctrl+H). With no text selected, turns highlighting on or off."
+                                  AutomationProperties.Name="Highlight">
                         <Grid Width="18" Height="20">
                             <FontIcon Glyph="&#xE7E6;" FontSize="16" VerticalAlignment="Top" />
                             <Rectangle x:Name="HighlightSwatch" Height="3" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1" Fill="#FFE600" />
                         </Grid>
-                        <ToggleSplitButton.Flyout>
-                            <Flyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
-                        </ToggleSplitButton.Flyout>
-                    </ToggleSplitButton>
+                    </ToggleButton>
                     <ToggleButton x:Name="UnderlineButton" Height="32" Width="32" Padding="0" Background="Transparent" BorderThickness="0"
                                   CornerRadius="4" Click="UnderlineButton_Click"
                                   ToolTipService.ToolTip="Underline. With no text selected, turns underlining on or off."
@@ -292,6 +289,15 @@
                             <Rectangle x:Name="StrikeSwatch" Height="2" VerticalAlignment="Center" Margin="0,1,0,0" Fill="#FFE600" />
                         </Grid>
                     </ToggleButton>
+                    <DropDownButton x:Name="MarkColorButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0" CornerRadius="4"
+                                    ToolTipService.ToolTip="Color for highlight, underline and strikethrough"
+                                    AutomationProperties.Name="Highlight, underline and strikethrough color">
+                        <Rectangle x:Name="MarkColorSwatch" Width="14" Height="14" RadiusX="3" RadiusY="3" Fill="#FFE600" />
+                        <DropDownButton.Flyout>
+                            <Flyout x:Name="HighlightMenu" Placement="BottomEdgeAlignedLeft" Opening="HighlightMenu_Opening" />
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                    <Rectangle Style="{StaticResource ToolSeparator}" />
                     <!-- Sign: pick a saved signature and click the page to place it, or make a new one. -->
                     <DropDownButton x:Name="SignButton" Height="32" Padding="6,0" Background="Transparent" BorderThickness="0" CornerRadius="4"
                                     ToolTipService.ToolTip="Sign: place a saved signature, or make a new one" AutomationProperties.Name="Sign">
@@ -307,11 +313,6 @@
                         <Path x:Name="MarkupIcon" Data="M2,6 L2,16 L12,16 L12,12 M6,12 L16,2 L18,4 L8,14 L5,15 Z"
                               StrokeThickness="1.4" StrokeLineJoin="Round" Width="20" Height="18" />
                     </ToggleButton>
-                    <Rectangle Style="{StaticResource ToolSeparator}" />
-                    <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
-                             AutomationProperties.Name="Page number"
-                             KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
-                    <TextBlock x:Name="PageCountLabel" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.7" />
                 </StackPanel>
             </StackPanel>
 

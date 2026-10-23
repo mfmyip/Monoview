@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Monoview.App.Viewer;
 using Monoview.Engine;
@@ -468,7 +468,6 @@ public sealed partial class MainWindow : Window
     // ---------------- Highlighter ----------------
 
     private bool _highlighterMode;
-    private bool _syncingHighlighter;
 
     /// <summary>
     /// The highlight, underline and strikethrough buttons, and Ctrl+H: mark the selection that way, or with no
@@ -509,23 +508,17 @@ public sealed partial class MainWindow : Window
     private void UpdateMarkButtons()
     {
         var kind = MarkupPalette.CurrentKind;
-        _syncingHighlighter = true;
         HighlightButton.IsChecked = _highlighterMode && kind == MarkupKind.Highlight;
-        _syncingHighlighter = false;
         UnderlineButton.IsChecked = _highlighterMode && kind == MarkupKind.Underline;
         StrikeButton.IsChecked = _highlighterMode && kind == MarkupKind.StrikeOut;
     }
 
-    private void HighlightButton_IsCheckedChanged(ToggleSplitButton sender, ToggleSplitButtonIsCheckedChangedEventArgs args)
-    {
-        if (_syncingHighlighter) return;
-        MarkCommand(MarkupKind.Highlight);
-    }
+    private void HighlightButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Highlight);
 
     private void UnderlineButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Underline);
     private void StrikeButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.StrikeOut);
 
-    /// <summary>The color panel under the highlighter's arrow; the color is shared by all three marking buttons.</summary>
+    /// <summary>The color panel under the color button beside the three marking buttons; all three use the color.</summary>
     private void HighlightMenu_Opening(object? sender, object e) =>
         HighlightMenu.Content = MarkupPalette.ColorPanel(HighlightMenu, MarkupPalette.Current, hasNone: false, color =>
         {
@@ -607,7 +600,7 @@ public sealed partial class MainWindow : Window
     {
         var c = MarkupPalette.Current;
         var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = brush;
+        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = MarkColorSwatch.Fill = brush;
     }
 
     /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>
@@ -1076,11 +1069,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePageLabel()
     {
-        var viewer = CurrentView?.Viewer;
-        if (!ReferenceEquals(FocusedElement(), PageBox))
-            PageBox.Text = viewer is null ? "" : (viewer.CurrentPage + 1).ToString();
-        PageCountLabel.Text = viewer is null ? "" : $"of {viewer.PageCount}";
-        if (viewer is not null) CurrentView!.ShowPageNumber(viewer.CurrentPage + 1, viewer.PageCount);
+        CurrentView?.UpdatePageNumber();
     }
 
     private void UpdateZoomLabel() => ZoomLabel.Text = CurrentView is { } v ? $"{v.Viewer.Zoom * 100:0}%" : "";
@@ -1112,31 +1101,6 @@ public sealed partial class MainWindow : Window
     {
         if (sender is MenuFlyoutItem { Tag: string tag } && double.TryParse(tag, System.Globalization.CultureInfo.InvariantCulture, out double z))
             CurrentView?.Viewer.SetZoom(z);
-    }
-
-    private void PageBox_GotFocus(object sender, RoutedEventArgs e) => PageBox.SelectAll();
-
-    private void PageBox_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == VirtualKey.Enter)
-        {
-            GoToTypedPage();
-            e.Handled = true;
-        }
-        else if (e.Key == VirtualKey.Escape)
-        {
-            UpdatePageLabel();
-            e.Handled = true;
-        }
-    }
-
-    private void PageBox_LostFocus(object sender, RoutedEventArgs e) => UpdatePageLabel();
-
-    private void GoToTypedPage()
-    {
-        if (CurrentView is { } view && int.TryParse(PageBox.Text.Trim(), out int page))
-            view.Viewer.NavigateTo(page - 1);
-        UpdatePageLabel();
     }
 
     // ---------------- Search ----------------
@@ -1478,12 +1442,7 @@ public sealed partial class MainWindow : Window
 
     private void GoToPage_Click(object sender, RoutedEventArgs e) => FocusPageBox();
 
-    private void FocusPageBox()
-    {
-        if (CurrentView is null) return;
-        PageBox.Focus(FocusState.Keyboard);
-        PageBox.SelectAll();
-    }
+    private void FocusPageBox() => CurrentView?.FocusPageBox();
 
     private void NextTab_Click(object sender, RoutedEventArgs e) => CycleTab(+1);
     private void PreviousTab_Click(object sender, RoutedEventArgs e) => CycleTab(-1);
@@ -1660,7 +1619,7 @@ public sealed partial class MainWindow : Window
                     async Task Pause(int ms = 1600) => await Task.Delay(ms);
                     var manual = CurrentView!;
                     await Pause(2000);
-                    HighlightMenu.ShowAt(HighlightButton);
+                    HighlightMenu.ShowAt(MarkColorButton);
                     await Pause(2000);
                     HighlightMenu.Hide();
                     await manual.Viewer.SelectAllAsync();
@@ -1882,7 +1841,7 @@ public sealed partial class MainWindow : Window
                 }
                 if (args.Contains("--sign-menu")) { SignMenu.ShouldConstrainToRootBounds = true; SignMenu.ShowAt(SignButton); await Task.Delay(1000); }
                 if (Arg("--sign-dialog") is { } typedName) { _ = NewSignatureAsync(typedName.Length > 0 ? typedName : null); await Task.Delay(1200); }
-                if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(HighlightButton); await Task.Delay(1000); }
+                if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(MarkColorButton); await Task.Delay(1000); }
                 if (args.Contains("--tab-menu") && Tabs.SelectedItem is TabViewItem selectedTab)
                 {
                     selectedTab.ContextFlyout.ShowAt(selectedTab);

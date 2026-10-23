@@ -4,6 +4,7 @@ using Monoview.Engine;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Windows.System;
 
 namespace Monoview.App;
 
@@ -75,7 +76,38 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
     public void ToggleSidebar() => SetSidebarVisible(!IsSidebarVisible);
 
-    public void ShowPageNumber(int page, int count) => PageNumber.Text = $"{page} of {count}";
+    // ---- The page selector ----
+
+    /// <summary>Shows the current page and the count; the box keeps what is being typed in it.</summary>
+    public void UpdatePageNumber()
+    {
+        if (PageBox.FocusState == FocusState.Unfocused)
+            PageBox.Text = (Viewer.CurrentPage + 1).ToString();
+        PageCount.Text = $"of {Viewer.PageCount}";
+    }
+
+    public void FocusPageBox()
+    {
+        PageBox.Focus(FocusState.Keyboard);
+        PageBox.SelectAll();
+    }
+
+    private void PageBox_GotFocus(object sender, RoutedEventArgs e) => PageBox.SelectAll();
+
+    private void PageBox_LostFocus(object sender, RoutedEventArgs e) => UpdatePageNumber();
+
+    private void PageBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key is not (VirtualKey.Enter or VirtualKey.Escape)) return;
+        e.Handled = true;
+        if (e.Key == VirtualKey.Enter && int.TryParse(PageBox.Text.Trim(), out int page))
+            Viewer.NavigateTo(page - 1);
+        Viewer.Focus(FocusState.Programmatic); // back to the pages, which shows the page reached
+    }
+
+    // One page at a time, without filling Back history as a jump does.
+    private void PreviousPage_Click(object sender, RoutedEventArgs e) => Viewer.GoToPage(Viewer.CurrentPage - 1);
+    private void NextPage_Click(object sender, RoutedEventArgs e) => Viewer.GoToPage(Viewer.CurrentPage + 1);
 
     public void SetSidebarVisible(bool visible)
     {

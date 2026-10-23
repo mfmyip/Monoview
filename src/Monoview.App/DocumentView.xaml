@@ -1,4 +1,4 @@
-﻿<UserControl
+<UserControl
     x:Class="Monoview.App.DocumentView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -160,10 +160,24 @@
         <!-- A card beside the sidebar card, with a gutter between that the splitter sits in. -->
         <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="10" Margin="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
 
-        <!-- The page number over the page area's bottom-right corner, clear of the scroll bar. -->
+        <!-- The page selector over the page area's bottom-right corner, clear of the scroll bar: previous, the page
+             box (type a number and press Enter, or Ctrl+G), the count, next. Dark in both themes so it reads over any page. -->
         <Border Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,16"
-                Padding="10,4" CornerRadius="12" Background="#99000000" IsHitTestVisible="False">
-            <TextBlock x:Name="PageNumber" Foreground="White" FontSize="12" />
+                Padding="2" CornerRadius="8" Background="#262626" RequestedTheme="Dark">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0" Click="PreviousPage_Click"
+                        ToolTipService.ToolTip="Previous page" AutomationProperties.Name="Previous page">
+                    <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                </Button>
+                <TextBox x:Name="PageBox" Width="44" MinWidth="44" Height="28" MinHeight="28" Padding="4,4,4,0" TextAlignment="Center"
+                         VerticalAlignment="Center" AutomationProperties.Name="Page number"
+                         KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
+                <TextBlock x:Name="PageCount" VerticalAlignment="Center" Margin="4,0,2,0" FontSize="13" Opacity="0.8" />
+                <Button Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0" Click="NextPage_Click"
+                        ToolTipService.ToolTip="Next page" AutomationProperties.Name="Next page">
+                    <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                </Button>
+            </StackPanel>
         </Border>
 
         <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->

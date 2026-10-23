@@ -107,6 +107,7 @@ public sealed partial class PdfViewer : UserControl
         _surface.PointerPressed += OnPointerPressed;
         _surface.PointerMoved += OnPointerMoved;
         _surface.PointerReleased += OnPointerReleased;
+        _surface.PointerExited += (_, _) => HideCommentTip();
         _surface.PointerCaptureLost += (_, _) =>
         {
             _selecting = false;
@@ -926,7 +927,7 @@ public sealed partial class PdfViewer : UserControl
             return;
         }
         if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
-        UpdateCommentTip(point.Position);
+        UpdateCommentTip(point.Position, e.GetCurrentPoint(this).Position);
 
         if (LinkAt(point.Position) is not null)
         {
@@ -977,7 +978,7 @@ public sealed partial class PdfViewer : UserControl
             ClearSelection();
             var at = e.GetCurrentPoint(_surface).Position;
             if (pressedMarkup is not null && MarkupAt(at) == pressedMarkup)
-                ShowMarkupMenu(pressedMarkup, at);
+                ShowComment(pressedMarkup, at);
         }
         else if (HighlighterMode)
         {
@@ -1037,7 +1038,10 @@ public sealed partial class PdfViewer : UserControl
 
     private MenuFlyout BuildContextMenu()
     {
+        // Marking the selection comes first, the comment at the top, as in Acrobat.
         var menu = new MenuFlyout();
+        AddMarkupItems(menu, () => HasSelection);
+        menu.Items.Add(new MenuFlyoutSeparator());
         var copy = new MenuFlyoutItem { Text = "Copy", Icon = new SymbolIcon(Symbol.Copy) };
         copy.Click += async (_, _) => await CopySelectionAsync();
         var selectAll = new MenuFlyoutItem { Text = "Select All", Icon = new SymbolIcon(Symbol.SelectAll) };
@@ -1045,8 +1049,6 @@ public sealed partial class PdfViewer : UserControl
         menu.Items.Add(copy);
         menu.Items.Add(selectAll);
         menu.Opening += (_, _) => copy.IsEnabled = HasSelection;
-        menu.Items.Add(new MenuFlyoutSeparator());
-        AddMarkupItems(menu, () => HasSelection);
         return menu;
     }
 

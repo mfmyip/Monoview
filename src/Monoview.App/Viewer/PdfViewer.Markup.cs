@@ -323,10 +323,31 @@ public sealed partial class PdfViewer
         return markups.LastOrDefault(m => m.Rects.Any(r => r.Contains(x, y)));
     }
 
-    /// <summary>
-    /// Clicking or right-clicking a markup opens its menu: its comment if it has one, colors, Add or Edit comment,
-    /// and Delete.
-    /// </summary>
+    /// <summary>A comment as a note card: dark text on white, in either theme, so it stands apart from the menu around it.</summary>
+    private static Border CommentCard(string comment) => new()
+    {
+        Background = new SolidColorBrush(Microsoft.UI.Colors.White),
+        BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 208, 208, 208)), BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 8, 10, 8), MaxWidth = 280,
+        Child = new StackPanel
+        {
+            Spacing = 4,
+            Children =
+            {
+                new TextBlock { Text = "Comment", FontSize = 11, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 110, 110, 110)) },
+                new TextBlock { Text = comment, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 26, 26, 26)) },
+            },
+        },
+    };
+
+    /// <summary>Clicking a markup with a comment shows the comment; the menu to change the markup is on right-click.</summary>
+    private void ShowComment(Markup markup, Point at)
+    {
+        if (markup.Comment.Length == 0) return;
+        new Flyout { Content = CommentCard(markup.Comment) }.ShowAt(_surface, new FlyoutShowOptions { Position = at });
+    }
+
+    /// <summary>Right-clicking a markup opens its menu: its comment if it has one, Add or Edit comment, colors and Delete.</summary>
     private void ShowMarkupMenu(Markup markup, Point at)
     {
         var menu = new Flyout();
@@ -347,10 +368,10 @@ public sealed partial class PdfViewer
         }
         var panel = new StackPanel { Spacing = 6 };
         if (markup.Comment.Length > 0)
-            panel.Children.Add(new TextBlock { Text = markup.Comment, TextWrapping = TextWrapping.Wrap, MaxWidth = 216, Margin = new Thickness(0, 0, 0, 4) });
-        panel.Children.Add(MarkupPalette.ColorPanel(menu, markup.Color, hasNone: false, color => _ = RecolorAsync(markup, color!.Value)));
+            panel.Children.Add(CommentCard(markup.Comment));
         panel.Children.Add(Row("", markup.Comment.Length > 0 ? "Edit comment" : "Add comment",
             () => ShowCommentEditor(at, markup.Comment, text => SetCommentAsync(markup, text))));
+        panel.Children.Add(MarkupPalette.ColorPanel(menu, markup.Color, hasNone: false, color => _ = RecolorAsync(markup, color!.Value)));
         panel.Children.Add(Row("", "Delete", () => _ = RemoveAsync(markup)));
         menu.Content = panel;
         menu.ShowAt(_surface, new FlyoutShowOptions { Position = at });
@@ -378,15 +399,41 @@ public sealed partial class PdfViewer
         flyout.ShowAt(_surface, new FlyoutShowOptions { Position = at });
     }
 
-    /// <summary>Hovering a markup that has a comment shows the comment.</summary>
-    private void UpdateCommentTip(Point p)
+    /// <summary>
+    /// Hovering a markup that has a comment shows its card beside the pointer, in the overlay layer above the pages.
+    /// <paramref name="onSurface"/> finds the markup; <paramref name="inView"/> places the card.
+    /// </summary>
+    private void UpdateCommentTip(Point onSurface, Point inView)
     {
-        var comment = MarkupAt(p)?.Comment ?? "";
-        if (comment == _tipComment) return;
-        _tipComment = comment;
-        ToolTipService.SetToolTip(_surface, comment.Length > 0 ? comment : null);
+        var comment = MarkupAt(onSurface)?.Comment ?? "";
+        if (comment.Length == 0)
+        {
+            HideCommentTip();
+            return;
+        }
+        if (_commentTip is null || comment != _tipComment)
+        {
+            HideCommentTip();
+            _commentTip = CommentCard(comment);
+            _tipComment = comment;
+            _overlayLayer.Children.Add(_commentTip);
+            _commentTip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        }
+        // Below and right of the pointer, kept inside the view.
+        var size = _commentTip.DesiredSize;
+        Canvas.SetLeft(_commentTip, Math.Max(0, Math.Min(inView.X + 14, ActualWidth - size.Width - 8)));
+        Canvas.SetTop(_commentTip, inView.Y + 20 + size.Height > ActualHeight ? inView.Y - size.Height - 8 : inView.Y + 20);
     }
 
+    private void HideCommentTip()
+    {
+        if (_commentTip is null) return;
+        _overlayLayer.Children.Remove(_commentTip);
+        _commentTip = null;
+        _tipComment = "";
+    }
+
+    private Border? _commentTip;
     private string _tipComment = "";
     private Point _contextAt;
 
@@ -407,6 +454,11 @@ public sealed partial class PdfViewer
             ("Highlight", MarkupKind.Highlight), ("Underline", MarkupKind.Underline), ("Strikethrough", MarkupKind.StrikeOut),
         };
         var added = new List<MenuFlyoutItem>();
+        // First, as Acrobat's "Add Note to Text": a highlight that carries a comment.
+        var commented = new MenuFlyoutItem { Text = "Highlight with comment…", Icon = new FontIcon { Glyph = "" } };
+        commented.Click += (_, _) => ShowCommentEditor(_contextAt, "", text => MarkSelectionAsync(MarkupKind.Highlight, MarkupPalette.Current, text));
+        menu.Items.Add(commented);
+        added.Add(commented);
         foreach (var (text, kind) in items)
         {
             var item = new MenuFlyoutItem { Text = text };
@@ -415,11 +467,6 @@ public sealed partial class PdfViewer
             menu.Items.Add(item);
             added.Add(item);
         }
-        // As Acrobat's "Add Note to Text": a highlight that carries a comment.
-        var commented = new MenuFlyoutItem { Text = "Highlight with comment…", Icon = new FontIcon { Glyph = "" } };
-        commented.Click += (_, _) => ShowCommentEditor(_contextAt, "", text => MarkSelectionAsync(MarkupKind.Highlight, MarkupPalette.Current, text));
-        menu.Items.Add(commented);
-        added.Add(commented);
         menu.Opening += (s, e) => { foreach (var item in added) item.IsEnabled = enabled(); };
     }
 }
