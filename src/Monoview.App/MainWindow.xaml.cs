@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Monoview.App.Viewer;
 using Monoview.Engine;
@@ -1069,7 +1069,11 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePageLabel()
     {
-        CurrentView?.UpdatePageNumber();
+        var viewer = CurrentView?.Viewer;
+        if (!ReferenceEquals(FocusedElement(), PageBox))
+            PageBox.Text = viewer is null ? "" : (viewer.CurrentPage + 1).ToString();
+        PageCountLabel.Text = viewer is null ? "" : $"of {viewer.PageCount}";
+        if (viewer is not null) CurrentView!.ShowPageNumber(viewer.CurrentPage + 1, viewer.PageCount);
     }
 
     private void UpdateZoomLabel() => ZoomLabel.Text = CurrentView is { } v ? $"{v.Viewer.Zoom * 100:0}%" : "";
@@ -1101,6 +1105,31 @@ public sealed partial class MainWindow : Window
     {
         if (sender is MenuFlyoutItem { Tag: string tag } && double.TryParse(tag, System.Globalization.CultureInfo.InvariantCulture, out double z))
             CurrentView?.Viewer.SetZoom(z);
+    }
+
+    private void PageBox_GotFocus(object sender, RoutedEventArgs e) => PageBox.SelectAll();
+
+    private void PageBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            GoToTypedPage();
+            e.Handled = true;
+        }
+        else if (e.Key == VirtualKey.Escape)
+        {
+            UpdatePageLabel();
+            e.Handled = true;
+        }
+    }
+
+    private void PageBox_LostFocus(object sender, RoutedEventArgs e) => UpdatePageLabel();
+
+    private void GoToTypedPage()
+    {
+        if (CurrentView is { } view && int.TryParse(PageBox.Text.Trim(), out int page))
+            view.Viewer.NavigateTo(page - 1);
+        UpdatePageLabel();
     }
 
     // ---------------- Search ----------------
@@ -1442,7 +1471,12 @@ public sealed partial class MainWindow : Window
 
     private void GoToPage_Click(object sender, RoutedEventArgs e) => FocusPageBox();
 
-    private void FocusPageBox() => CurrentView?.FocusPageBox();
+    private void FocusPageBox()
+    {
+        if (CurrentView is null) return;
+        PageBox.Focus(FocusState.Keyboard);
+        PageBox.SelectAll();
+    }
 
     private void NextTab_Click(object sender, RoutedEventArgs e) => CycleTab(+1);
     private void PreviousTab_Click(object sender, RoutedEventArgs e) => CycleTab(-1);

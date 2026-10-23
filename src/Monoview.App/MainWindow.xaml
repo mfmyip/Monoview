@@ -1,4 +1,4 @@
-﻿<Window
+<Window
     x:Class="Monoview.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -313,6 +313,11 @@
                         <Path x:Name="MarkupIcon" Data="M2,6 L2,16 L12,16 L12,12 M6,12 L16,2 L18,4 L8,14 L5,15 Z"
                               StrokeThickness="1.4" StrokeLineJoin="Round" Width="20" Height="18" />
                     </ToggleButton>
+                    <Rectangle Style="{StaticResource ToolSeparator}" />
+                    <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
+                             AutomationProperties.Name="Page number"
+                             KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
+                    <TextBlock x:Name="PageCountLabel" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.7" />
                 </StackPanel>
             </StackPanel>
 
