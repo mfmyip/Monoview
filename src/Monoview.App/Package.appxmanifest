@@ -40,13 +40,31 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
+        <!-- One association per extension, so each gets its own icon. PNG keeps the old "image" name,
+             so a user who made Monoview the default for .png keeps that choice across the update. -->
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="image">
-            <uap:DisplayName>Picture</uap:DisplayName>
-            <uap:Logo>Assets\Package\FileTypeImg.png</uap:Logo>
+            <uap:DisplayName>PNG Picture</uap:DisplayName>
+            <uap:Logo>Assets\Package\FileTypePng.png</uap:Logo>
             <uap:SupportedFileTypes>
               <uap:FileType>.png</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="jpg">
+            <uap:DisplayName>JPG Picture</uap:DisplayName>
+            <uap:Logo>Assets\Package\FileTypeJpg.png</uap:Logo>
+            <uap:SupportedFileTypes>
               <uap:FileType>.jpg</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="jpeg">
+            <uap:DisplayName>JPEG Picture</uap:DisplayName>
+            <uap:Logo>Assets\Package\FileTypeJpeg.png</uap:Logo>
+            <uap:SupportedFileTypes>
               <uap:FileType>.jpeg</uap:FileType>
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
