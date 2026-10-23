@@ -452,6 +452,7 @@ public sealed partial class MainWindow : Window
         view.Viewer.StyleFor = ToolStyle;
         view.Viewer.ToolChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateToolButtons(); };
         view.Viewer.SelectionChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateStyleControls(); };
+        view.Viewer.SelectedMarkupChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateHighlightSwatch(); };
         // A dot before the file name marks unsaved changes, as in most editors.
         view.Viewer.PagesEdited += (_, _) =>
         {
@@ -518,14 +519,25 @@ public sealed partial class MainWindow : Window
     private void UnderlineButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Underline);
     private void StrikeButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.StrikeOut);
 
-    /// <summary>The color panel under the color button beside the three marking buttons; all three use the color.</summary>
-    private void HighlightMenu_Opening(object? sender, object e) =>
-        HighlightMenu.Content = MarkupPalette.ColorPanel(HighlightMenu, MarkupPalette.Current, hasNone: false, color =>
+    /// <summary>
+    /// The color panel under the color button beside the three marking buttons: it recolors the selected markup, or
+    /// with none selected sets the color all three use next.
+    /// </summary>
+    private void HighlightMenu_Opening(object? sender, object e)
+    {
+        var selected = CurrentView?.Viewer.SelectedMarkup;
+        HighlightMenu.Content = MarkupPalette.ColorPanel(HighlightMenu, selected?.Color ?? MarkupPalette.Current, hasNone: false, color =>
         {
+            if (selected is not null)
+            {
+                _ = CurrentView!.Viewer.RecolorSelectedMarkupAsync(color!.Value);
+                return;
+            }
             AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color!.Value);
             AppSettings.Save();
             UpdateHighlightSwatch();
         });
+    }
 
     // ---------------- Signatures ----------------
 
@@ -598,9 +610,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateHighlightSwatch()
     {
-        var c = MarkupPalette.Current;
-        var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = MarkColorSwatch.Fill = brush;
+        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = MarkupPalette.Brush(MarkupPalette.Current);
+        // The color button shows the selected markup's color, which it changes; else the color for new marks.
+        MarkColorSwatch.Fill = MarkupPalette.Brush(CurrentView?.Viewer.SelectedMarkup?.Color ?? MarkupPalette.Current);
     }
 
     /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>

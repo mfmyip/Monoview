@@ -196,10 +196,40 @@ public sealed partial class PdfViewer
         AfterEdit(edited);
     }
 
+    /// <summary>
+    /// The markup a click selected, as one object like a shape: outlined, with its comment under it if it has one.
+    /// The toolbar's color recolors it, Delete removes it, Esc or a click elsewhere lets it go.
+    /// </summary>
+    public Markup? SelectedMarkup
+    {
+        get => _selectedMarkup;
+        private set
+        {
+            if (_selectedMarkup == value) return;
+            var old = _selectedMarkup;
+            _selectedMarkup = value;
+            if (value is not null) Selected = null; // one selected object at a time
+            foreach (int page in new[] { old?.PageIndex, value?.PageIndex }.OfType<int>().Distinct())
+                if (_views.TryGetValue(page, out var view)) RefreshOverlay(view);
+            SelectedMarkupChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private Markup? _selectedMarkup;
+
+    public event EventHandler? SelectedMarkupChanged;
+
+    /// <summary>The same annotation, even as another record read after a change.</summary>
+    private static bool Same(Markup a, Markup? b) => b is not null && a.PageIndex == b.PageIndex && a.AnnotIndex == b.AnnotIndex;
+
+    public Task RecolorSelectedMarkupAsync(MarkupColor color) =>
+        SelectedMarkup is { } markup ? RecolorAsync(markup, color) : Task.CompletedTask;
+
     private async Task RecolorAsync(Markup markup, MarkupColor color)
     {
         if (BeforeEdit is not null) await BeforeEdit();
         await _doc.SetMarkupColorAsync(markup, color);
+        if (Same(markup, SelectedMarkup)) SelectedMarkup = markup with { Color = color };
         AfterEdit([markup.PageIndex]);
     }
 
@@ -208,6 +238,7 @@ public sealed partial class PdfViewer
         if (comment == markup.Comment) return;
         if (BeforeEdit is not null) await BeforeEdit();
         await _doc.SetMarkupCommentAsync(markup, comment);
+        if (Same(markup, SelectedMarkup)) SelectedMarkup = markup with { Comment = comment };
         AfterEdit([markup.PageIndex]);
     }
 
@@ -215,7 +246,36 @@ public sealed partial class PdfViewer
     {
         if (BeforeEdit is not null) await BeforeEdit();
         await _doc.RemoveMarkupAsync(markup);
+        SelectedMarkup = null; // the page's other annotations move up in its list
         AfterEdit([markup.PageIndex]);
+    }
+
+    /// <summary>The selected markup's outline, and its comment card under it, in the page's overlay.</summary>
+    private void DrawMarkupSelection(PageView view)
+    {
+        if (SelectedMarkup is not { } markup || markup.PageIndex != view.Index) return;
+        double w = _w[view.Index], h = _h[view.Index];
+        var accent = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+        double left = double.MaxValue, bottom = 0;
+        foreach (var rect in markup.Rects)
+        {
+            var r = PageRotation.ToView(rect, _rotation);
+            var outline = new Microsoft.UI.Xaml.Shapes.Rectangle
+            {
+                Width = (r.Right - r.Left) * w + 6, Height = (r.Bottom - r.Top) * h + 6,
+                Stroke = accent, StrokeThickness = 2, RadiusX = 3, RadiusY = 3,
+            };
+            Canvas.SetLeft(outline, r.Left * w - 3);
+            Canvas.SetTop(outline, r.Top * h - 3);
+            view.Overlay.Children.Add(outline);
+            left = Math.Min(left, r.Left * w);
+            bottom = Math.Max(bottom, r.Bottom * h);
+        }
+        if (markup.Comment.Length == 0) return;
+        var card = CommentCard(markup.Comment);
+        Canvas.SetLeft(card, left);
+        Canvas.SetTop(card, bottom + 8);
+        view.Overlay.Children.Add(card);
     }
 
     /// <summary>Stops timers and autoscroll before the view is thrown away.</summary>
@@ -257,6 +317,7 @@ public sealed partial class PdfViewer
     /// </summary>
     public void ReplaceDocument(PdfDocument doc, IReadOnlyList<int>? carry = null)
     {
+        SelectedMarkup = null;
         DetachForm(_doc);
         _doc = doc;
         AttachForm(doc);
@@ -469,7 +530,7 @@ public sealed partial class PdfViewer
                 _hoverOutline.Add(outline);
                 _overlayLayer.Children.Add(outline);
             }
-            if (markup.Comment.Length > 0)
+            if (markup.Comment.Length > 0 && !Same(markup, SelectedMarkup)) // a selected one shows its card already
             {
                 _commentTip = CommentCard(markup.Comment);
                 _overlayLayer.Children.Add(_commentTip);

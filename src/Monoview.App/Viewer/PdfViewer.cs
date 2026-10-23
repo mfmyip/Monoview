@@ -617,6 +617,13 @@ public sealed partial class PdfViewer : UserControl
             }
             return;
         }
+        if (SelectedMarkup is { } markup && e.Key is VirtualKey.Delete or VirtualKey.Escape)
+        {
+            if (e.Key == VirtualKey.Delete) _ = RemoveAsync(markup);
+            else SelectedMarkup = null;
+            e.Handled = true;
+            return;
+        }
         if ((e.Key == VirtualKey.Delete && DeleteSelectedShape()) || (e.Key == VirtualKey.Escape && CancelShapeEditing()))
         {
             e.Handled = true;
@@ -974,14 +981,15 @@ public sealed partial class PdfViewer : UserControl
         _pressedMarkup = null;
         if (_anchor == _focus)
         {
+            // A click on a markup selects it; a click anywhere else lets it go.
             ClearSelection();
             var at = e.GetCurrentPoint(_surface).Position;
-            if (pressedMarkup is not null && MarkupAt(at) == pressedMarkup)
-                EditComment(pressedMarkup);
+            SelectedMarkup = pressedMarkup is not null && MarkupAt(at) is { } under && Same(pressedMarkup, under) ? under : null;
         }
-        else if (HighlighterMode)
+        else
         {
-            _ = MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
+            SelectedMarkup = null;
+            if (HighlighterMode) _ = MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
         }
     }
 
@@ -989,6 +997,14 @@ public sealed partial class PdfViewer : UserControl
     {
         var p = e.GetPosition(_surface);
         if (HandleFormDoubleTap(p) || HandleShapeDoubleTap(p)) return;
+        // A double-click on a markup opens its comment, as in Acrobat.
+        if (MarkupAt(p) is { } markup)
+        {
+            ClearSelection();
+            SelectedMarkup = markup;
+            EditComment(markup);
+            return;
+        }
         if (HitTest(p, out var text) is not { } pos || text is null) return;
         int page = pos.Page;
         var (cx, cy) = ToPageCoords(page, p);
@@ -1102,6 +1118,7 @@ public sealed partial class PdfViewer : UserControl
         if (page < 0) return;
         DrawShapeOverlay(view);
         DrawCommentMarkers(view);
+        DrawMarkupSelection(view);
 
         bool hasHits = _hits.TryGetValue(page, out var hits);
         (int Start, int End)? selection = SelectionOnPage(page);
