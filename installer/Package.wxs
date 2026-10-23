@@ -97,14 +97,19 @@
     </StandardDirectory>
 
     <Component Id="OpenWith" Directory="APPLICATIONFOLDER">
-      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document" Type="string" Value="Monoview Document" KeyPath="yes" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot;,0" />
+      <!-- One ProgID per file kind, so Explorer shows a PDF page or a picture page. The PDF one keeps its old
+           name, so a user who made Monoview the default PDF app keeps that choice across the upgrade. -->
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document" Type="string" Value="PDF Document" KeyPath="yes" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypePdf.ico&quot;" />
       <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image" Type="string" Value="Picture" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypeImg.ico&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
 
       <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Image" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Image" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Image" Type="string" Value="" />
 
       <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe" Name="FriendlyAppName" Type="string" Value="Monoview" />
       <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
@@ -117,9 +122,9 @@
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationName" Type="string" Value="Monoview" />
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationDescription" Type="string" Value="A fast, clean PDF viewer and editor." />
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".pdf" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Image" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Image" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Image" />
       <RegistryValue Root="HKMU" Key="Software\RegisteredApplications" Name="Monoview" Type="string" Value="Software\Monoview\Capabilities" />
     </Component>
 

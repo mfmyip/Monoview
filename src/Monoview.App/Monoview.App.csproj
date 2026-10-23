@@ -46,6 +46,8 @@
 
   <ItemGroup>
     <Content Include="Assets\Monoview.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- File icons for the ProgIDs that the MSI and "Add to Open with" register. -->
+    <Content Include="Assets\FileTypePdf.ico;Assets\FileTypeImg.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Package\*.png" />
     <!-- The start page shows this one, so the published app (and the installer) needs it too. -->
     <Content Update="Assets\Package\Square44x44Logo.targetsize-256_altform-unplated.png" CopyToOutputDirectory="PreserveNewest" />
