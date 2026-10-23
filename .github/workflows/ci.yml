@@ -88,6 +88,10 @@ jobs:
           Run out\Monoview-0.0.1-setup.exe "/quiet /log setup.log"
           Installed @{ InstallFolder = $folder; CheckForUpdates = 1; DesktopShortcut = 'off'; OpenWith = 'on' }
           Expect 'Open with for .pdf' ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.pdf\OpenWithProgids' -Name 'Monoview.Document' -ErrorAction SilentlyContinue)) $true
+          Expect 'Open with for .png' ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.png\OpenWithProgids' -Name 'Monoview.Image' -ErrorAction SilentlyContinue)) $true
+          Expect 'Open with for .jpg' ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.jpg\OpenWithProgids' -Name 'Monoview.Jpg' -ErrorAction SilentlyContinue)) $true
+          Expect 'Open with for .jpeg' ($null -ne (Get-ItemProperty 'HKCU:\Software\Classes\.jpeg\OpenWithProgids' -Name 'Monoview.Jpeg' -ErrorAction SilentlyContinue)) $true
+          Expect 'PDF file icon' (Get-ItemPropertyValue 'HKCU:\Software\Classes\Monoview.Document\DefaultIcon' -Name '(default)') "`"${folder}Assets\FileTypePdf.ico`""
           Run out\Monoview-0.0.1-setup.exe "/uninstall /quiet /log setup-uninstall.log"
           Removed
 

@@ -37,7 +37,7 @@ internal static partial class AppRegistration
         using (var progId = Registry.CurrentUser.CreateSubKey($@"{Classes}\{ProgId}"))
         {
             progId.SetValue(null, "PDF Document");
-            using (var icon = progId.CreateSubKey("DefaultIcon")) icon.SetValue(null, $"\"{exe}\",0");
+            using (var icon = progId.CreateSubKey("DefaultIcon")) icon.SetValue(null, $"\"{Path.Combine(AppContext.BaseDirectory, "Assets", "FileTypePdf.ico")}\"");
             using (var cmd = progId.CreateSubKey(@"shell\open\command")) cmd.SetValue(null, open);
         }
         using (var withProgIds = Registry.CurrentUser.CreateSubKey($@"{Classes}\.pdf\OpenWithProgids"))
