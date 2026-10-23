@@ -110,7 +110,7 @@ public sealed partial class MainWindow
         _borderLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         _borderButton = BarButton("Border color", IconAndLabel(_borderIcon, _borderSlash, _borderLabel),
             PanelFlyout(flyout => StyleContext() is { } c
-                ? ColorPanel(flyout, c.Style.Stroke, hasNone: c.Kind != ShapeKind.Ink, color => ChangeStyle(s => s with { Stroke = color }))
+                ? MarkupPalette.ColorPanel(flyout, c.Style.Stroke, hasNone: c.Kind != ShapeKind.Ink, color => ChangeStyle(s => s with { Stroke = color }))
                 : new Grid()));
 
         (_fillIcon, _fillSlash) = (new Rectangle { Width = 14, Height = 14, RadiusX = 2.5, RadiusY = 2.5, StrokeThickness = 1 }, Slash());
@@ -118,7 +118,7 @@ public sealed partial class MainWindow
         _fillLabel = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         _fillButton = BarButton("Fill color", IconAndLabel(_fillIcon, _fillSlash, _fillLabel),
             PanelFlyout(flyout => StyleContext() is { } c
-                ? ColorPanel(flyout, c.Style.Fill, hasNone: c.Kind != ShapeKind.Note, color => ChangeStyle(s => s with { Fill = color }))
+                ? MarkupPalette.ColorPanel(flyout, c.Style.Fill, hasNone: c.Kind != ShapeKind.Note, color => ChangeStyle(s => s with { Fill = color }))
                 : new Grid()));
 
         // Aa: font, size and text color.
@@ -192,126 +192,10 @@ public sealed partial class MainWindow
         {
             if (!double.IsNaN(e.NewValue) && Math.Abs(e.NewValue - e.OldValue) > 0.01) ChangeStyle(s => s with { FontSize = (float)e.NewValue });
         };
-        var swatch = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(3), Background = Brush(style.TextColor ?? Black) };
+        var swatch = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(3), Background = MarkupPalette.Brush(style.TextColor ?? Black) };
         var color = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { swatch, new TextBlock { Text = "Text color" } } } };
-        color.Click += (_, _) => flyout.Content = ColorPanel(flyout, style.TextColor ?? Black, hasNone: false, c => ChangeStyle(s => s with { TextColor = c }));
+        color.Click += (_, _) => flyout.Content = MarkupPalette.ColorPanel(flyout, style.TextColor ?? Black, hasNone: false, c => ChangeStyle(s => s with { TextColor = c }));
         return new StackPanel { Spacing = 12, Width = 216, Children = { fonts, size, color } };
-    }
-
-    // ---- The color panel, as in Preview: a row of brights, a grid of shades with None first; the color in use is ringed ----
-
-    private static readonly (string Name, MarkupColor Color)[] Brights =
-    [
-        ("Red", new(255, 59, 48)), ("Orange", new(255, 149, 0)), ("Yellow", new(255, 204, 0)), ("Green", new(52, 199, 89)),
-        ("Cyan", new(90, 200, 250)), ("Blue", new(10, 100, 220)), ("Magenta", new(255, 45, 206)), ("Purple", new(175, 82, 222)),
-        ("Tan", new(198, 156, 109)), ("White", new(255, 255, 255)), ("Grey", new(138, 138, 138)), ("Black", new(0, 0, 0)),
-    ];
-
-    private static readonly MarkupColor[] Shades = BuildShades();
-
-    /// <summary>A row of greys, then 8 rows of 12 hues from dark to light.</summary>
-    private static MarkupColor[] BuildShades()
-    {
-        var shades = new List<MarkupColor>();
-        for (int i = 0; i < 12; i++)
-        {
-            byte v = (byte)Math.Round(255 - i * 255 / 11.0);
-            shades.Add(new MarkupColor(v, v, v));
-        }
-        int[] hues = [200, 215, 235, 265, 290, 340, 5, 20, 35, 48, 60, 90];
-        foreach (double light in new[] { 0.22, 0.32, 0.42, 0.52, 0.62, 0.72, 0.82, 0.91 })
-            foreach (int hue in hues)
-            {
-                double a = 0.8 * Math.Min(light, 1 - light);
-                byte Channel(int n)
-                {
-                    double k = (n + hue / 30.0) % 12;
-                    return (byte)Math.Round(255 * (light - a * Math.Max(-1, Math.Min(Math.Min(k - 3, 9 - k), 1))));
-                }
-                shades.Add(new MarkupColor(Channel(0), Channel(8), Channel(4)));
-            }
-        return shades.ToArray();
-    }
-
-    private static Brush Brush(MarkupColor c) => new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-
-    /// <summary>Colors to pick from, with None first among the greys when <paramref name="hasNone"/>. A line and a note have no None.</summary>
-    private static FrameworkElement ColorPanel(Flyout flyout, MarkupColor? current, bool hasNone, Action<MarkupColor?> choose)
-    {
-        void Choose(MarkupColor? color)
-        {
-            flyout.Hide();
-            choose(color);
-        }
-        var accent = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
-        Button Cell(MarkupColor? color, string name, double size, bool selected)
-        {
-            FrameworkElement face = color is { } c
-                ? new Border { Background = Brush(c), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(40, 0, 0, 0)), BorderThickness = new Thickness(c is { R: > 240, G: > 240, B: > 240 } ? 1 : 0) }
-                : new Grid { Background = Brush(new MarkupColor(255, 255, 255)), Children = { new Microsoft.UI.Xaml.Shapes.Path
-                    {
-                        Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M0,10 L10,0"), Stretch = Stretch.Fill, Margin = new Thickness(1), // fits the cell, ringed or not
-                        Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28)), StrokeThickness = 1.5,
-                    } } };
-            var button = new Button
-            {
-                Content = face, Width = size, Height = size, MinWidth = 0, MinHeight = 0, Padding = new Thickness(selected ? 2 : 0),
-                CornerRadius = new CornerRadius(selected ? 3 : 0),
-                BorderThickness = new Thickness(selected ? 2 : 0), BorderBrush = accent, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
-            ToolTipService.SetToolTip(button, name);
-            AutomationProperties.SetName(button, name);
-            button.Click += (_, _) => Choose(color);
-            return button;
-        }
-        static Grid Grid12(double cell)
-        {
-            var grid = new Grid();
-            for (int i = 0; i < 12; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(cell) });
-            return grid;
-        }
-        void Place(Grid grid, int index, UIElement child)
-        {
-            while (grid.RowDefinitions.Count <= index / 12) grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
-            Grid.SetRow((FrameworkElement)child, index / 12);
-            Grid.SetColumn((FrameworkElement)child, index % 12);
-            grid.Children.Add(child);
-        }
-
-        var panel = new StackPanel { Spacing = 10, Width = 216 };
-
-        // Ring only the first cell in the color in use: black and white are in both grids.
-        bool ringed = false;
-        bool Ring(MarkupColor color) => !ringed && color == current && (ringed = true);
-
-        var brights = Grid12(18);
-        for (int i = 0; i < Brights.Length; i++)
-            Place(brights, i, Cell(Brights[i].Color, Brights[i].Name, 18, Ring(Brights[i].Color)));
-        panel.Children.Add(brights);
-
-        var shades = Grid12(18);
-        for (int i = 0; i < Shades.Length; i++)
-            Place(shades, i, i == 0 && hasNone
-                ? Cell(null, "None", 18, current is null)
-                : Cell(Shades[i], MarkupPalette.SettingValue(Shades[i]), 18, Ring(Shades[i])));
-        panel.Children.Add(shades);
-
-        var more = new Button { Content = "More colors…", HorizontalAlignment = HorizontalAlignment.Center };
-        more.Click += (_, _) =>
-        {
-            var start = current ?? Black;
-            var picker = new ColorPicker
-            {
-                Color = Windows.UI.Color.FromArgb(255, start.R, start.G, start.B),
-                IsAlphaEnabled = false, IsMoreButtonVisible = false, IsColorChannelTextInputVisible = false,
-            };
-            var use = new Button { Content = "Use color", Style = (Style)Application.Current.Resources["AccentButtonStyle"], HorizontalAlignment = HorizontalAlignment.Right };
-            use.Click += (_, _) => Choose(new MarkupColor(picker.Color.R, picker.Color.G, picker.Color.B));
-            flyout.Content = new StackPanel { Spacing = 10, Children = { picker, use } };
-        };
-        panel.Children.Add(more);
-        return panel;
     }
 
     private static Flyout PanelFlyout(Func<Flyout, FrameworkElement> content)
@@ -375,13 +259,13 @@ public sealed partial class MainWindow
         _textButton!.IsEnabled = text;
         var off = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 160, 160, 160));
         _widthLabel!.Text = line && style!.Stroke is not null ? $"{style.LineWidth:0.#} pt" : "";
-        _borderIcon!.Stroke = line && style!.Stroke is { } stroke ? Brush(stroke) : off;
+        _borderIcon!.Stroke = line && style!.Stroke is { } stroke ? MarkupPalette.Brush(stroke) : off;
         _borderSlash!.Visibility = line && style!.Stroke is null ? Visibility.Visible : Visibility.Collapsed;
         _borderLabel!.Text = kind == ShapeKind.Ink ? "Line" : "Border";
-        _fillIcon!.Fill = fill && style!.Fill is { } f ? Brush(f) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        _fillIcon!.Fill = fill && style!.Fill is { } f ? MarkupPalette.Brush(f) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         _fillSlash!.Visibility = fill && style!.Fill is null ? Visibility.Visible : Visibility.Collapsed;
         _fillLabel!.Text = kind == ShapeKind.Note ? "Color" : "Fill";
-        _textBar!.Fill = text ? Brush(style!.TextColor ?? Black) : off;
+        _textBar!.Fill = text ? MarkupPalette.Brush(style!.TextColor ?? Black) : off;
         string noun = kind switch
         {
             ShapeKind.Ink => "line", ShapeKind.Rectangle => "rectangle", ShapeKind.Ellipse => "ellipse",

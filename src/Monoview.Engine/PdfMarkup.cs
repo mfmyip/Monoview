@@ -12,8 +12,11 @@ public enum MarkupKind
 
 public readonly record struct MarkupColor(byte R, byte G, byte B);
 
-/// <summary>A highlight, underline or strikeout on a page. Rects are in unrotated normalized page coordinates.</summary>
-public sealed record Markup(int PageIndex, int AnnotIndex, MarkupKind Kind, MarkupColor Color, IReadOnlyList<NormRect> Rects);
+/// <summary>
+/// A highlight, underline or strikeout on a page. Rects are in unrotated normalized page coordinates. The comment is
+/// the annotation's /Contents, which Acrobat shows in the markup's pop-up note.
+/// </summary>
+public sealed record Markup(int PageIndex, int AnnotIndex, MarkupKind Kind, MarkupColor Color, IReadOnlyList<NormRect> Rects, string Comment = "");
 
 /// <summary>
 /// Text markup stored as standard PDF annotations, so other readers show it too. After each change
@@ -29,7 +32,7 @@ public sealed partial class PdfDocument
     public bool IsModified { get; private set; }
 
     /// <summary>Marks the text covered by <paramref name="rects"/> (unrotated normalized page coordinates, one per line).</summary>
-    public Task AddMarkupAsync(int pageIndex, MarkupKind kind, MarkupColor color, IReadOnlyList<NormRect> rects) =>
+    public Task AddMarkupAsync(int pageIndex, MarkupKind kind, MarkupColor color, IReadOnlyList<NormRect> rects, string comment = "") =>
         PdfiumThread.Run(() =>
         {
             if (rects.Count == 0) return;
@@ -40,6 +43,7 @@ public sealed partial class PdfDocument
             try
             {
                 FPDFAnnot_SetColor(annot, ColorTypeColor, color.R, color.G, color.B, 255);
+                if (comment.Length > 0) SetString(annot, "Contents", comment);
                 double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
                 foreach (var r in rects)
                 {
@@ -87,7 +91,7 @@ public sealed partial class PdfDocument
                         float[] xs = [p.X1, p.X2, p.X3, p.X4], ys = [p.Y1, p.Y2, p.Y3, p.Y4];
                         rects.Add(transform.ApplyToBox(xs.Min(), ys.Min(), xs.Max(), ys.Max()));
                     }
-                    markups.Add(new Markup(pageIndex, i, (MarkupKind)subtype, ReadColor(annot, (MarkupKind)subtype), rects));
+                    markups.Add(new Markup(pageIndex, i, (MarkupKind)subtype, ReadColor(annot, (MarkupKind)subtype), rects, GetString(annot, "Contents")));
                 }
                 finally
                 {
@@ -129,6 +133,21 @@ public sealed partial class PdfDocument
             FPDFAnnot_SetAP(annot, AppearanceNormal, IntPtr.Zero);
             if (FPDFAnnot_SetColor(annot, ColorTypeColor, color.R, color.G, color.B, 255) == 0)
                 throw new PdfException("PDFium could not change the markup color.");
+        }
+        finally
+        {
+            FPDFPage_CloseAnnot(annot);
+        }
+        PageEdited(markup.PageIndex);
+    });
+
+    public Task SetMarkupCommentAsync(Markup markup, string comment) => PdfiumThread.Run(() =>
+    {
+        IntPtr annot = FPDFPage_GetAnnot(GetPage(markup.PageIndex).__Instance, markup.AnnotIndex);
+        if (annot == IntPtr.Zero) return;
+        try
+        {
+            SetString(annot, "Contents", comment);
         }
         finally
         {

@@ -69,6 +69,35 @@ public class MarkupTests
         Assert.Equal(Green, Assert.Single(await doc.GetMarkupsAsync(0)).Color);
     }
 
+    [Fact]
+    public async Task Comment_is_kept_when_changed_and_saved()
+    {
+        string path = TempPath();
+        try
+        {
+            using (var doc = await PdfDocument.OpenAsync(SamplePdf.Path))
+            {
+                await doc.AddMarkupAsync(0, MarkupKind.Highlight, Yellow, await TitleRects(doc), "Check this");
+                Assert.Equal("Check this", Assert.Single(await doc.GetMarkupsAsync(0)).Comment);
+
+                await doc.RenderAsync(0, 612, 792);
+                await doc.SetMarkupCommentAsync(Assert.Single(await doc.GetMarkupsAsync(0)), "Café, line 2");
+                await doc.SaveCopyAsync(path);
+                await doc.CloseAsync();
+            }
+            using var saved = await PdfDocument.OpenAsync(path);
+            var markup = Assert.Single(await saved.GetMarkupsAsync(0));
+            Assert.Equal("Café, line 2", markup.Comment);
+            Assert.Equal(Yellow, markup.Color);
+            Assert.True(YellowPixels(await saved.RenderAsync(0, 612, 792)) > 500, "the highlight still shows");
+            await saved.CloseAsync();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(MarkupKind.Underline)]
     [InlineData(MarkupKind.StrikeOut)]

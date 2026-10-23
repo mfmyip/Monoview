@@ -160,6 +160,60 @@
         <!-- A card beside the sidebar card, with a gutter between that the splitter sits in. -->
         <Border x:Name="ViewerHost" Grid.Column="1" CornerRadius="10" Margin="8,0,0,0" Background="{ThemeResource ViewerBackgroundBrush}" />
 
+        <!-- Floating tools down the page area's right side, clear of the scroll bar. Contextual: each shows only when it
+             has something to do, and the bar hides when none does. For now, Comments, when the document has any. -->
+        <Border x:Name="RightTools" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,12,24,0"
+                Padding="3" CornerRadius="8" Background="{ThemeResource PanelSurfaceBrush}"
+                BorderBrush="{ThemeResource PanelStrokeBrush}" BorderThickness="1" Visibility="Collapsed">
+            <StackPanel Spacing="3">
+                <ToggleButton x:Name="CommentsButton" Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0"
+                              CornerRadius="6" Click="CommentsButton_Click"
+                              ToolTipService.ToolTip="Show all comments" AutomationProperties.Name="Show all comments">
+                    <FontIcon Glyph="&#xE90A;" FontSize="16" />
+                </ToggleButton>
+            </StackPanel>
+        </Border>
+
+        <!-- All comments, beside the floating tools. A click scrolls to the comment. -->
+        <Border x:Name="CommentsPane" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Width="300" Margin="0,12,70,56"
+                CornerRadius="10" Background="{ThemeResource PanelSurfaceBrush}"
+                BorderBrush="{ThemeResource PanelStrokeBrush}" BorderThickness="1" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Padding="14,8,6,4">
+                    <TextBlock x:Name="CommentsTitle" VerticalAlignment="Center" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Button HorizontalAlignment="Right" Width="30" Height="30" Padding="0" Background="Transparent" BorderThickness="0"
+                            Click="CloseComments_Click" ToolTipService.ToolTip="Close" AutomationProperties.Name="Close comments">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </Grid>
+                <ListView x:Name="CommentsList" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="CommentsList_ItemClick">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:CommentItem">
+                            <StackPanel Padding="0,8" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Width="9" Height="9" Fill="{x:Bind Color}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind Label}" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" MaxLines="4" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Border>
+
+        <!-- The page number over the page area's bottom-right corner, clear of the scroll bar; the toolbar's page box changes it.
+             Dark in both themes so it reads over any page. -->
+        <Border Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,16"
+                Padding="10,5" CornerRadius="8" Background="#262626" IsHitTestVisible="False">
+            <TextBlock x:Name="PageNumber" Foreground="White" FontSize="12" />
+        </Border>
+
         <!-- Drag handle on the sidebar's right edge: drag to resize; the width is remembered. -->
         <Border x:Name="SidebarSplitter" Grid.Column="1" Width="6" Margin="1,0,0,0"
                 HorizontalAlignment="Left" Background="Transparent"

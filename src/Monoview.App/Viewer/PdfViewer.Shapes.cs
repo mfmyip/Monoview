@@ -110,6 +110,7 @@ public sealed partial class PdfViewer
         {
             if (_selected == value) return;
             _selected = value;
+            if (value is not null) SelectedMarkup = null; // one selected object at a time
             SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
     }

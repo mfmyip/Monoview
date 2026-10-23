@@ -452,6 +452,7 @@ public sealed partial class MainWindow : Window
         view.Viewer.StyleFor = ToolStyle;
         view.Viewer.ToolChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateToolButtons(); };
         view.Viewer.SelectionChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateStyleControls(); };
+        view.Viewer.SelectedMarkupChanged += (s, _) => { if (ReferenceEquals(s, CurrentView?.Viewer)) UpdateHighlightSwatch(); };
         // A dot before the file name marks unsaved changes, as in most editors.
         view.Viewer.PagesEdited += (_, _) =>
         {
@@ -468,7 +469,6 @@ public sealed partial class MainWindow : Window
     // ---------------- Highlighter ----------------
 
     private bool _highlighterMode;
-    private bool _syncingHighlighter;
 
     /// <summary>
     /// The highlight, underline and strikethrough buttons, and Ctrl+H: mark the selection that way, or with no
@@ -509,34 +509,34 @@ public sealed partial class MainWindow : Window
     private void UpdateMarkButtons()
     {
         var kind = MarkupPalette.CurrentKind;
-        _syncingHighlighter = true;
         HighlightButton.IsChecked = _highlighterMode && kind == MarkupKind.Highlight;
-        _syncingHighlighter = false;
         UnderlineButton.IsChecked = _highlighterMode && kind == MarkupKind.Underline;
         StrikeButton.IsChecked = _highlighterMode && kind == MarkupKind.StrikeOut;
     }
 
-    private void HighlightButton_IsCheckedChanged(ToggleSplitButton sender, ToggleSplitButtonIsCheckedChangedEventArgs args)
-    {
-        if (_syncingHighlighter) return;
-        MarkCommand(MarkupKind.Highlight);
-    }
+    private void HighlightButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Highlight);
 
     private void UnderlineButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.Underline);
     private void StrikeButton_Click(object sender, RoutedEventArgs e) => MarkCommand(MarkupKind.StrikeOut);
 
-    /// <summary>The color panel under the highlighter's arrow; the color is shared by all three marking buttons.</summary>
+    /// <summary>
+    /// The color panel under the color button beside the three marking buttons: it recolors the selected markup, or
+    /// with none selected sets the color all three use next.
+    /// </summary>
     private void HighlightMenu_Opening(object? sender, object e)
     {
-        var c = MarkupPalette.Current;
-        var colors = MarkupPalette.ColorRow(HighlightMenu, c, color =>
+        var selected = CurrentView?.Viewer.SelectedMarkup;
+        HighlightMenu.Content = MarkupPalette.ColorPanel(HighlightMenu, selected?.Color ?? MarkupPalette.Current, hasNone: false, color =>
         {
-            AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color);
+            if (selected is not null)
+            {
+                _ = CurrentView!.Viewer.RecolorSelectedMarkupAsync(color!.Value);
+                return;
+            }
+            AppSettings.Current.MarkupColor = MarkupPalette.SettingValue(color!.Value);
             AppSettings.Save();
             UpdateHighlightSwatch();
         });
-
-        HighlightMenu.Content = colors;
     }
 
     // ---------------- Signatures ----------------
@@ -610,9 +610,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateHighlightSwatch()
     {
-        var c = MarkupPalette.Current;
-        var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = brush;
+        HighlightSwatch.Fill = UnderlineSwatch.Fill = StrikeSwatch.Fill = MarkupPalette.Brush(MarkupPalette.Current);
+        // The color button shows the selected markup's color, which it changes; else the color for new marks.
+        MarkColorSwatch.Fill = MarkupPalette.Brush(CurrentView?.Viewer.SelectedMarkup?.Color ?? MarkupPalette.Current);
     }
 
     /// <summary>Reopens the current file from disk (e.g. after another app changed it), keeping page, zoom and layout.</summary>
@@ -1085,6 +1085,7 @@ public sealed partial class MainWindow : Window
         if (!ReferenceEquals(FocusedElement(), PageBox))
             PageBox.Text = viewer is null ? "" : (viewer.CurrentPage + 1).ToString();
         PageCountLabel.Text = viewer is null ? "" : $"of {viewer.PageCount}";
+        if (viewer is not null) CurrentView!.ShowPageNumber(viewer.CurrentPage + 1, viewer.PageCount);
     }
 
     private void UpdateZoomLabel() => ZoomLabel.Text = CurrentView is { } v ? $"{v.Viewer.Zoom * 100:0}%" : "";
@@ -1664,7 +1665,7 @@ public sealed partial class MainWindow : Window
                     async Task Pause(int ms = 1600) => await Task.Delay(ms);
                     var manual = CurrentView!;
                     await Pause(2000);
-                    HighlightMenu.ShowAt(HighlightButton);
+                    HighlightMenu.ShowAt(MarkColorButton);
                     await Pause(2000);
                     HighlightMenu.Hide();
                     await manual.Viewer.SelectAllAsync();
@@ -1886,7 +1887,7 @@ public sealed partial class MainWindow : Window
                 }
                 if (args.Contains("--sign-menu")) { SignMenu.ShouldConstrainToRootBounds = true; SignMenu.ShowAt(SignButton); await Task.Delay(1000); }
                 if (Arg("--sign-dialog") is { } typedName) { _ = NewSignatureAsync(typedName.Length > 0 ? typedName : null); await Task.Delay(1200); }
-                if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(HighlightButton); await Task.Delay(1000); }
+                if (args.Contains("--highlight-menu")) { HighlightMenu.ShouldConstrainToRootBounds = true; HighlightMenu.ShowAt(MarkColorButton); await Task.Delay(1000); }
                 if (args.Contains("--tab-menu") && Tabs.SelectedItem is TabViewItem selectedTab)
                 {
                     selectedTab.ContextFlyout.ShowAt(selectedTab);

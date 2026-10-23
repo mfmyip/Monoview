@@ -67,6 +67,12 @@ public sealed partial class DocumentView : UserControl, IDisposable
         _thumbnailFallback.Tick += (_, _) => ShowThumbnails();
         _thumbnailFallback.Start();
 
+        // The comments pane and its button follow every edit, undo and page change.
+        Viewer.PagesEdited += (_, _) => _ = RefreshCommentsAsync();
+        Viewer.ShowAllCommentsRequested += (_, _) => ShowComments(true);
+        _previews.DocumentReplaced += (_, _) => _ = RefreshCommentsAsync();
+        _ = RefreshCommentsAsync();
+
         Viewer.CurrentPageChanged += (_, _) => SyncThumbnailSelection();
         Loaded += (_, _) => SyncThumbnailSelection();
         // Like Preview: a single page, such as a picture, needs no page list.
@@ -74,6 +80,62 @@ public sealed partial class DocumentView : UserControl, IDisposable
     }
 
     public void ToggleSidebar() => SetSidebarVisible(!IsSidebarVisible);
+
+    public void ShowPageNumber(int page, int count) => PageNumber.Text = $"{page} of {count}";
+
+    // ---- Comments ----
+
+    private int _commentsVersion;
+
+    /// <summary>
+    /// Reads every page's comments in the background, in page order: markups' comments and sticky notes. Shows the
+    /// Comments button only when there are some. A newer read drops an older one still running.
+    /// </summary>
+    private async Task RefreshCommentsAsync()
+    {
+        int version = ++_commentsVersion;
+        var doc = Document;
+        var items = new List<CommentItem>();
+        try
+        {
+            for (int i = 0; i < doc.PageCount; i++)
+            {
+                foreach (var m in await doc.GetMarkupsAsync(i))
+                    if (m.Comment.Length > 0)
+                        items.Add(new CommentItem(i, m.Rects.Count > 0 ? m.Rects.Min(r => r.Top) : 0, m.Kind switch
+                        {
+                            MarkupKind.Underline => "Underline", MarkupKind.StrikeOut => "Strikethrough", _ => "Highlight",
+                        }, m.Color, m.Comment));
+                foreach (var s in await doc.GetShapesAsync(i))
+                    if (s.Kind == ShapeKind.Note && s.Text.Length > 0)
+                        items.Add(new CommentItem(i, s.Rect.Top, "Note", s.Style?.Fill ?? new MarkupColor(255, 210, 0), s.Text));
+                if (version != _commentsVersion) return;
+            }
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or PdfException)
+        {
+            return; // the document closed or was replaced; that replacement reads again
+        }
+        if (version != _commentsVersion) return;
+        CommentsList.ItemsSource = items.OrderBy(c => c.PageIndex).ThenBy(c => c.Top).ToList();
+        CommentsTitle.Text = items.Count == 1 ? "1 comment" : $"{items.Count} comments";
+        RightTools.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (items.Count == 0) ShowComments(false);
+    }
+
+    private void ShowComments(bool show)
+    {
+        CommentsPane.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        CommentsButton.IsChecked = show;
+    }
+
+    private void CommentsButton_Click(object sender, RoutedEventArgs e) => ShowComments(CommentsButton.IsChecked == true);
+    private void CloseComments_Click(object sender, RoutedEventArgs e) => ShowComments(false);
+
+    private void CommentsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is CommentItem item) Viewer.NavigateTo(item.PageIndex, item.Top);
+    }
 
     public void SetSidebarVisible(bool visible)
     {

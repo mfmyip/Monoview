@@ -107,6 +107,7 @@ public sealed partial class PdfViewer : UserControl
         _surface.PointerPressed += OnPointerPressed;
         _surface.PointerMoved += OnPointerMoved;
         _surface.PointerReleased += OnPointerReleased;
+        _surface.PointerExited += (_, _) => HideCommentTip();
         _surface.PointerCaptureLost += (_, _) =>
         {
             _selecting = false;
@@ -116,7 +117,8 @@ public sealed partial class PdfViewer : UserControl
         PreviewKeyDown += OnPreviewKeyDown;
         CharacterReceived += OnCharacterReceived;
         AttachForm(doc);
-        _surface.ContextFlyout = BuildContextMenu();
+        _textMenu = BuildContextMenu();
+        _surface.ContextRequested += OnContextRequested;
 
         _settleTimer = DispatcherQueue.CreateTimer();
         _settleTimer.Interval = TimeSpan.FromMilliseconds(120);
@@ -535,6 +537,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        HideCommentTip(); // the hover outline is drawn over the view, so it would stay put while the pages move
         if (!e.IsIntermediate) _pendingOffset = null;
         float zf = _scroller.ZoomFactor;
         if (!e.IsIntermediate && Math.Abs(zf - 1) > 0.001)
@@ -612,6 +615,13 @@ public sealed partial class PdfViewer : UserControl
                 CommitTextEditor();
                 e.Handled = true;
             }
+            return;
+        }
+        if (SelectedMarkup is { } markup && e.Key is VirtualKey.Delete or VirtualKey.Escape)
+        {
+            if (e.Key == VirtualKey.Delete) _ = RemoveAsync(markup);
+            else SelectedMarkup = null;
+            e.Handled = true;
             return;
         }
         if ((e.Key == VirtualKey.Delete && DeleteSelectedShape()) || (e.Key == VirtualKey.Escape && CancelShapeEditing()))
@@ -925,8 +935,7 @@ public sealed partial class PdfViewer : UserControl
             return;
         }
         if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
-
-        if (LinkAt(point.Position) is not null)
+        if (UpdateMarkupHover(point.Position, e.GetCurrentPoint(this).Position) || LinkAt(point.Position) is not null)
         {
             ProtectedCursor = _handCursor;
             _textCursorShown = false;
@@ -972,14 +981,15 @@ public sealed partial class PdfViewer : UserControl
         _pressedMarkup = null;
         if (_anchor == _focus)
         {
+            // A click on a markup selects it; a click anywhere else lets it go.
             ClearSelection();
             var at = e.GetCurrentPoint(_surface).Position;
-            if (pressedMarkup is not null && MarkupAt(at) == pressedMarkup)
-                ShowMarkupMenu(pressedMarkup, at);
+            SelectedMarkup = pressedMarkup is not null && MarkupAt(at) is { } under && Same(pressedMarkup, under) ? under : null;
         }
-        else if (HighlighterMode)
+        else
         {
-            _ = MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
+            SelectedMarkup = null;
+            if (HighlighterMode) _ = MarkSelectionAsync(MarkupPalette.CurrentKind, MarkupPalette.Current);
         }
     }
 
@@ -987,6 +997,14 @@ public sealed partial class PdfViewer : UserControl
     {
         var p = e.GetPosition(_surface);
         if (HandleFormDoubleTap(p) || HandleShapeDoubleTap(p)) return;
+        // A double-click on a markup opens its comment, as in Acrobat.
+        if (MarkupAt(p) is { } markup)
+        {
+            ClearSelection();
+            SelectedMarkup = markup;
+            EditComment(markup);
+            return;
+        }
         if (HitTest(p, out var text) is not { } pos || text is null) return;
         int page = pos.Page;
         var (cx, cy) = ToPageCoords(page, p);
@@ -1035,7 +1053,10 @@ public sealed partial class PdfViewer : UserControl
 
     private MenuFlyout BuildContextMenu()
     {
+        // Marking the selection comes first, the comment at the top, as in Acrobat.
         var menu = new MenuFlyout();
+        AddMarkupItems(menu, () => HasSelection);
+        menu.Items.Add(new MenuFlyoutSeparator());
         var copy = new MenuFlyoutItem { Text = "Copy", Icon = new SymbolIcon(Symbol.Copy) };
         copy.Click += async (_, _) => await CopySelectionAsync();
         var selectAll = new MenuFlyoutItem { Text = "Select All", Icon = new SymbolIcon(Symbol.SelectAll) };
@@ -1043,8 +1064,6 @@ public sealed partial class PdfViewer : UserControl
         menu.Items.Add(copy);
         menu.Items.Add(selectAll);
         menu.Opening += (_, _) => copy.IsEnabled = HasSelection;
-        menu.Items.Add(new MenuFlyoutSeparator());
-        AddMarkupItems(menu, () => HasSelection);
         return menu;
     }
 
@@ -1098,6 +1117,8 @@ public sealed partial class PdfViewer : UserControl
         int page = view.Index;
         if (page < 0) return;
         DrawShapeOverlay(view);
+        DrawCommentMarkers(view);
+        DrawMarkupSelection(view);
 
         bool hasHits = _hits.TryGetValue(page, out var hits);
         (int Start, int End)? selection = SelectionOnPage(page);
