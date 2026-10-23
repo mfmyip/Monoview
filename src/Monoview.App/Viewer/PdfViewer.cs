@@ -117,8 +117,8 @@ public sealed partial class PdfViewer : UserControl
         PreviewKeyDown += OnPreviewKeyDown;
         CharacterReceived += OnCharacterReceived;
         AttachForm(doc);
+        _textMenu = BuildContextMenu();
         _surface.ContextRequested += OnContextRequested;
-        _surface.ContextFlyout = BuildContextMenu();
 
         _settleTimer = DispatcherQueue.CreateTimer();
         _settleTimer.Interval = TimeSpan.FromMilliseconds(120);
@@ -537,6 +537,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        HideCommentTip(); // the hover outline is drawn over the view, so it would stay put while the pages move
         if (!e.IsIntermediate) _pendingOffset = null;
         float zf = _scroller.ZoomFactor;
         if (!e.IsIntermediate && Math.Abs(zf - 1) > 0.001)
@@ -927,9 +928,7 @@ public sealed partial class PdfViewer : UserControl
             return;
         }
         if (HandleFormMove(point.Position) || HandleShapeMove(point.Position, e)) return;
-        UpdateCommentTip(point.Position, e.GetCurrentPoint(this).Position);
-
-        if (LinkAt(point.Position) is not null)
+        if (UpdateMarkupHover(point.Position, e.GetCurrentPoint(this).Position) || LinkAt(point.Position) is not null)
         {
             ProtectedCursor = _handCursor;
             _textCursorShown = false;
@@ -978,7 +977,7 @@ public sealed partial class PdfViewer : UserControl
             ClearSelection();
             var at = e.GetCurrentPoint(_surface).Position;
             if (pressedMarkup is not null && MarkupAt(at) == pressedMarkup)
-                ShowComment(pressedMarkup, at);
+                EditComment(pressedMarkup);
         }
         else if (HighlighterMode)
         {

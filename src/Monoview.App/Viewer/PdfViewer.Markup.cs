@@ -1,4 +1,5 @@
 using Monoview.Engine;
+using PageRotation = Monoview.Engine.Rotation;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -340,12 +341,17 @@ public sealed partial class PdfViewer
         },
     };
 
-    /// <summary>Clicking a markup with a comment shows the comment; the menu to change the markup is on right-click.</summary>
-    private void ShowComment(Markup markup, Point at)
+    /// <summary>Just under the left end of the markup's last line, in surface coordinates: where its comment editor opens.</summary>
+    private Point BelowMarkup(Markup markup)
     {
-        if (markup.Comment.Length == 0) return;
-        new Flyout { Content = CommentCard(markup.Comment) }.ShowAt(_surface, new FlyoutShowOptions { Position = at });
+        var r = PageRotation.ToView(markup.Rects[^1], _rotation);
+        int page = markup.PageIndex;
+        return new Point(_left[page] + r.Left * _w[page], _top[page] + r.Bottom * _h[page] + 4);
     }
+
+    /// <summary>Clicking a markup opens its comment to add or edit, under the markup; hovering shows it.</summary>
+    private void EditComment(Markup markup) =>
+        ShowCommentEditor(BelowMarkup(markup), markup.Comment, text => SetCommentAsync(markup, text));
 
     /// <summary>Right-clicking a markup opens its menu: its comment if it has one, Add or Edit comment, colors and Delete.</summary>
     private void ShowMarkupMenu(Markup markup, Point at)
@@ -369,8 +375,7 @@ public sealed partial class PdfViewer
         var panel = new StackPanel { Spacing = 6 };
         if (markup.Comment.Length > 0)
             panel.Children.Add(CommentCard(markup.Comment));
-        panel.Children.Add(Row("", markup.Comment.Length > 0 ? "Edit comment" : "Add comment",
-            () => ShowCommentEditor(at, markup.Comment, text => SetCommentAsync(markup, text))));
+        panel.Children.Add(Row("", markup.Comment.Length > 0 ? "Edit comment" : "Add comment", () => EditComment(markup)));
         panel.Children.Add(MarkupPalette.ColorPanel(menu, markup.Color, hasNone: false, color => _ = RecolorAsync(markup, color!.Value)));
         panel.Children.Add(Row("", "Delete", () => _ = RemoveAsync(markup)));
         menu.Content = panel;
@@ -396,55 +401,93 @@ public sealed partial class PdfViewer
             box.Focus(FocusState.Programmatic);
             box.SelectionStart = box.Text.Length;
         };
-        flyout.ShowAt(_surface, new FlyoutShowOptions { Position = at });
+        HideCommentTip();
+        flyout.ShowAt(_surface, new FlyoutShowOptions { Position = at, Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft });
     }
 
     /// <summary>
-    /// Hovering a markup that has a comment shows its card beside the pointer, in the overlay layer above the pages.
-    /// <paramref name="onSurface"/> finds the markup; <paramref name="inView"/> places the card.
+    /// As in Acrobat, hovering a markup shows it as one object: a hand cursor and an outline around all its lines, ready
+    /// for a click or right-click. A markup with a comment also shows its card beside the pointer. Both are drawn in the
+    /// overlay layer above the pages. <paramref name="onSurface"/> finds the markup; <paramref name="inView"/> places the card.
+    /// Returns whether a markup is under the pointer.
     /// </summary>
-    private void UpdateCommentTip(Point onSurface, Point inView)
+    private bool UpdateMarkupHover(Point onSurface, Point inView)
     {
-        var comment = MarkupAt(onSurface)?.Comment ?? "";
-        if (comment.Length == 0)
+        var markup = MarkupAt(onSurface);
+        if (markup is null)
         {
             HideCommentTip();
-            return;
+            return false;
         }
-        if (_commentTip is null || comment != _tipComment)
+        if (markup != _hovered)
         {
             HideCommentTip();
-            _commentTip = CommentCard(comment);
-            _tipComment = comment;
-            _overlayLayer.Children.Add(_commentTip);
-            _commentTip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            _hovered = markup;
+            var accent = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+            var toView = _surface.TransformToVisual(this);
+            int page = markup.PageIndex;
+            foreach (var rect in markup.Rects)
+            {
+                var r = PageRotation.ToView(rect, _rotation);
+                var topLeft = toView.TransformPoint(new Point(_left[page] + r.Left * _w[page], _top[page] + r.Top * _h[page]));
+                var outline = new Microsoft.UI.Xaml.Shapes.Rectangle
+                {
+                    Width = (r.Right - r.Left) * _w[page] + 4, Height = (r.Bottom - r.Top) * _h[page] + 4,
+                    Stroke = accent, StrokeThickness = 1.5, RadiusX = 2, RadiusY = 2,
+                };
+                Canvas.SetLeft(outline, topLeft.X - 2);
+                Canvas.SetTop(outline, topLeft.Y - 2);
+                _hoverOutline.Add(outline);
+                _overlayLayer.Children.Add(outline);
+            }
+            if (markup.Comment.Length > 0)
+            {
+                _commentTip = CommentCard(markup.Comment);
+                _overlayLayer.Children.Add(_commentTip);
+                _commentTip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            }
         }
-        // Below and right of the pointer, kept inside the view.
-        var size = _commentTip.DesiredSize;
-        Canvas.SetLeft(_commentTip, Math.Max(0, Math.Min(inView.X + 14, ActualWidth - size.Width - 8)));
-        Canvas.SetTop(_commentTip, inView.Y + 20 + size.Height > ActualHeight ? inView.Y - size.Height - 8 : inView.Y + 20);
+        if (_commentTip is not null)
+        {
+            // Below and right of the pointer, kept inside the view.
+            var size = _commentTip.DesiredSize;
+            Canvas.SetLeft(_commentTip, Math.Max(0, Math.Min(inView.X + 14, ActualWidth - size.Width - 8)));
+            Canvas.SetTop(_commentTip, inView.Y + 20 + size.Height > ActualHeight ? inView.Y - size.Height - 8 : inView.Y + 20);
+        }
+        return true;
     }
 
+    /// <summary>Clears the hover outline and comment card, when the pointer leaves the markup, the view scrolls or a menu opens.</summary>
     private void HideCommentTip()
     {
-        if (_commentTip is null) return;
-        _overlayLayer.Children.Remove(_commentTip);
+        foreach (var outline in _hoverOutline) _overlayLayer.Children.Remove(outline);
+        _hoverOutline.Clear();
+        if (_commentTip is not null) _overlayLayer.Children.Remove(_commentTip);
         _commentTip = null;
-        _tipComment = "";
+        _hovered = null;
     }
 
+    private readonly MenuFlyout _textMenu;
+    private Markup? _hovered;
+    private readonly List<Microsoft.UI.Xaml.Shapes.Rectangle> _hoverOutline = new();
     private Border? _commentTip;
-    private string _tipComment = "";
     private Point _contextAt;
 
     /// <summary>Right-click on a markup opens the markup's menu instead of the text menu.</summary>
+    /// <remarks>
+    /// The text menu is shown from here, not set as the surface's ContextFlyout: WinUI opens a ContextFlyout itself and
+    /// handles the event first, so the markup menu never got its turn and the text menu came up greyed out.
+    /// </remarks>
     private void OnContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
+        e.Handled = true;
         _contextAt = e.TryGetPosition(_surface, out var p) ? p
             : new Point(_scroller.HorizontalOffset + _scroller.ViewportWidth / 2, _scroller.VerticalOffset + _scroller.ViewportHeight / 2);
-        if (HasSelection || MarkupAt(_contextAt) is not { } markup) return;
-        e.Handled = true;
-        ShowMarkupMenu(markup, _contextAt);
+        HideCommentTip();
+        if (!HasSelection && MarkupAt(_contextAt) is { } markup)
+            ShowMarkupMenu(markup, _contextAt);
+        else
+            _textMenu.ShowAt(_surface, new FlyoutShowOptions { Position = _contextAt });
     }
 
     private void AddMarkupItems(MenuFlyout menu, Func<bool> enabled)
