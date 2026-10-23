@@ -34,6 +34,7 @@
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="pdf">
             <uap:DisplayName>PDF Document</uap:DisplayName>
+            <uap:Logo>Assets\Package\FileTypePdf.png</uap:Logo>
             <uap:SupportedFileTypes>
               <uap:FileType>.pdf</uap:FileType>
             </uap:SupportedFileTypes>
@@ -42,6 +43,7 @@
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="image">
             <uap:DisplayName>Picture</uap:DisplayName>
+            <uap:Logo>Assets\Package\FileTypeImg.png</uap:Logo>
             <uap:SupportedFileTypes>
               <uap:FileType>.png</uap:FileType>
               <uap:FileType>.jpg</uap:FileType>
