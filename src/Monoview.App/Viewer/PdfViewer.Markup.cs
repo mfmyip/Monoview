@@ -303,7 +303,9 @@ public sealed partial class PdfViewer
         {
             var doc = _doc;
             var markups = await doc.GetMarkupsAsync(index);
-            if (doc == _doc) _markups.Add(index, markups);
+            if (doc != _doc) return;
+            _markups.Add(index, markups);
+            if (markups.Any(m => m.Comment.Length > 0) && _views.TryGetValue(index, out var view)) RefreshOverlay(view);
         }
         catch (Exception ex) when (ex is ObjectDisposedException or PdfException)
         {
@@ -340,6 +342,33 @@ public sealed partial class PdfViewer
             },
         },
     };
+
+    /// <summary>
+    /// As in Acrobat, a markup with a comment gets a dot in its own color, ringed in white, at the start of its first
+    /// line. Drawn in the page's overlay, so it moves with the page.
+    /// </summary>
+    private void DrawCommentMarkers(PageView view)
+    {
+        if (!_markups.TryGet(view.Index, out var markups)) return;
+        double w = _w[view.Index], h = _h[view.Index];
+        foreach (var markup in markups.Where(m => m.Comment.Length > 0 && m.Rects.Count > 0))
+        {
+            var r = PageRotation.ToView(markup.Rects[0], _rotation);
+            // A thin dark edge outside the white ring, so a light color still reads on a white page.
+            var edge = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 16, Height = 16, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(70, 0, 0, 0)) };
+            var dot = new Microsoft.UI.Xaml.Shapes.Ellipse
+            {
+                Width = 14, Height = 14, Fill = MarkupPalette.Brush(markup.Color),
+                Stroke = new SolidColorBrush(Microsoft.UI.Colors.White), StrokeThickness = 2.5,
+            };
+            Canvas.SetLeft(edge, r.Left * w - 9);
+            Canvas.SetTop(edge, r.Top * h - 9);
+            Canvas.SetLeft(dot, r.Left * w - 8);
+            Canvas.SetTop(dot, r.Top * h - 8);
+            view.Overlay.Children.Add(edge);
+            view.Overlay.Children.Add(dot);
+        }
+    }
 
     /// <summary>Just under the left end of the markup's last line, in surface coordinates: where its comment editor opens.</summary>
     private Point BelowMarkup(Markup markup)

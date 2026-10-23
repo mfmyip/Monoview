@@ -45,6 +45,17 @@ public sealed partial class ThumbnailItem(int index, double width, double height
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+/// <summary>A comment in the comments pane: a markup's comment or a sticky note's text, and where it is.</summary>
+public sealed class CommentItem(int pageIndex, double top, string kind, MarkupColor color, string text)
+{
+    public int PageIndex { get; } = pageIndex;
+    /// <summary>The comment's top on its page, unrotated and normalized, to scroll to.</summary>
+    public double Top { get; } = top;
+    public string Label { get; } = $"Page {pageIndex + 1} · {kind}";
+    public Microsoft.UI.Xaml.Media.Brush Color { get; } = Viewer.MarkupPalette.Brush(color);
+    public string Text { get; } = text;
+}
+
 public sealed class SearchResultItem(SearchHit hit)
 {
     public SearchHit Hit { get; } = hit;

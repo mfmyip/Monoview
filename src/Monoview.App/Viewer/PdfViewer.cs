@@ -1101,6 +1101,7 @@ public sealed partial class PdfViewer : UserControl
         int page = view.Index;
         if (page < 0) return;
         DrawShapeOverlay(view);
+        DrawCommentMarkers(view);
 
         bool hasHits = _hits.TryGetValue(page, out var hits);
         (int Start, int End)? selection = SelectionOnPage(page);
