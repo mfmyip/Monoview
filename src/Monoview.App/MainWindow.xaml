@@ -314,7 +314,8 @@
                               StrokeThickness="1.4" StrokeLineJoin="Round" Width="20" Height="18" />
                     </ToggleButton>
                     <Rectangle Style="{StaticResource ToolSeparator}" />
-                    <TextBox x:Name="PageBox" Width="48" MinWidth="48" Height="32" TextAlignment="Center" VerticalAlignment="Center"
+                    <TextBox x:Name="PageBox" Width="36" MinWidth="36" Height="24" MinHeight="24" Padding="2,2,2,0" FontSize="13"
+                             TextAlignment="Center" VerticalAlignment="Center"
                              AutomationProperties.Name="Page number"
                              KeyDown="PageBox_KeyDown" LostFocus="PageBox_LostFocus" GotFocus="PageBox_GotFocus" />
                     <TextBlock x:Name="PageCountLabel" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.7" />
