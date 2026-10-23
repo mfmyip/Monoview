@@ -69,6 +69,7 @@ public sealed partial class DocumentView : UserControl, IDisposable
 
         // The comments pane and its button follow every edit, undo and page change.
         Viewer.PagesEdited += (_, _) => _ = RefreshCommentsAsync();
+        Viewer.ShowAllCommentsRequested += (_, _) => ShowComments(true);
         _previews.DocumentReplaced += (_, _) => _ = RefreshCommentsAsync();
         _ = RefreshCommentsAsync();
 

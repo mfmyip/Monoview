@@ -443,32 +443,61 @@ public sealed partial class PdfViewer
     private void EditComment(Markup markup) =>
         ShowCommentEditor(BelowMarkup(markup), markup.Comment, text => SetCommentAsync(markup, text));
 
-    /// <summary>Right-clicking a markup opens its menu: its comment if it has one, Add or Edit comment, colors and Delete.</summary>
+    /// <summary>Show all comments in a markup's menu: the document view opens its comments pane.</summary>
+    public event EventHandler? ShowAllCommentsRequested;
+
+    /// <summary>
+    /// Right-clicking a markup opens its menu, a plain column as in Acrobat: Comment and Color open submenus to the
+    /// right, then Delete.
+    /// </summary>
     private void ShowMarkupMenu(Markup markup, Point at)
     {
-        var menu = new Flyout();
-        Button Row(string glyph, string text, Action click)
+        MenuFlyoutItem Item(string text, string? glyph, Action click)
         {
-            var button = new Button
-            {
-                Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new FontIcon { Glyph = glyph, FontSize = 16 }, new TextBlock { Text = text } } },
-                HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left,
-                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
-            };
-            button.Click += (_, _) =>
-            {
-                menu.Hide();
-                click();
-            };
-            return button;
+            var item = new MenuFlyoutItem { Text = text };
+            if (glyph is not null) item.Icon = new FontIcon { Glyph = glyph };
+            item.Click += (_, _) => click();
+            return item;
         }
-        var panel = new StackPanel { Spacing = 6 };
-        if (markup.Comment.Length > 0)
-            panel.Children.Add(CommentCard(markup.Comment));
-        panel.Children.Add(Row("", markup.Comment.Length > 0 ? "Edit comment" : "Add comment", () => EditComment(markup)));
-        panel.Children.Add(MarkupPalette.ColorPanel(menu, markup.Color, hasNone: false, color => _ = RecolorAsync(markup, color!.Value)));
-        panel.Children.Add(Row("", "Delete", () => _ = RemoveAsync(markup)));
-        menu.Content = panel;
+        var menu = new MenuFlyout();
+
+        var comment = new MenuFlyoutSubItem { Text = "Comment", Icon = new FontIcon { Glyph = "" } };
+        bool has = markup.Comment.Length > 0;
+        comment.Items.Add(Item(has ? "Edit comment…" : "Add comment…", "", () => EditComment(markup)));
+        if (has) comment.Items.Add(Item("Delete comment", "", () => _ = SetCommentAsync(markup, "")));
+        comment.Items.Add(new MenuFlyoutSeparator());
+        comment.Items.Add(Item("Show all comments", "", () => ShowAllCommentsRequested?.Invoke(this, EventArgs.Empty)));
+        menu.Items.Add(comment);
+
+        // The highlighter's colors with a swatch each, the markup's own ticked; More colors opens the full panel.
+        var color = new MenuFlyoutSubItem { Text = "Color", Icon = new FontIcon { Glyph = "" } };
+        var colors = MarkupPalette.Colors.ToList();
+        if (!colors.Any(c => c.Color == markup.Color)) colors.Insert(0, ("Current", markup.Color));
+        foreach (var (name, value) in colors)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = name, GroupName = "Markup color", IsChecked = value == markup.Color,
+                Icon = new PathIcon
+                {
+                    Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M8,2 A6,6 0 1 1 7.99,2 Z"),
+                    Foreground = MarkupPalette.Brush(value),
+                },
+            };
+            item.Click += (_, _) => { if (value != markup.Color) _ = RecolorAsync(markup, value); };
+            color.Items.Add(item);
+        }
+        color.Items.Add(new MenuFlyoutSeparator());
+        color.Items.Add(Item("More colors…", null, () =>
+        {
+            var panel = new Flyout();
+            panel.Content = MarkupPalette.ColorPanel(panel, markup.Color, hasNone: false, c => _ = RecolorAsync(markup, c!.Value));
+            panel.ShowAt(_surface, new FlyoutShowOptions { Position = at });
+        }));
+        menu.Items.Add(color);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(Item("Delete", "", () => _ = RemoveAsync(markup)));
         menu.ShowAt(_surface, new FlyoutShowOptions { Position = at });
     }
 
@@ -575,7 +604,10 @@ public sealed partial class PdfViewer
             : new Point(_scroller.HorizontalOffset + _scroller.ViewportWidth / 2, _scroller.VerticalOffset + _scroller.ViewportHeight / 2);
         HideCommentTip();
         if (!HasSelection && MarkupAt(_contextAt) is { } markup)
+        {
+            SelectedMarkup = markup; // outlined while its menu is open, as the object the menu acts on
             ShowMarkupMenu(markup, _contextAt);
+        }
         else
             _textMenu.ShowAt(_surface, new FlyoutShowOptions { Position = _contextAt });
     }
