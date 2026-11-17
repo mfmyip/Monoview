@@ -22,7 +22,7 @@
 
 <br>
 
-<img src="docs/images/overview-light.png" width="820" alt="Monoview showing a four-page proposal in two-page view with page thumbnails">
+<img src="docs/images/overview-light.png" width="820" alt="Monoview showing a four-page proposal in two-page view, with a commented highlight and the comments pane open">
 
 <br>
 
@@ -53,6 +53,7 @@ Monoview brings that to Windows. It is a native WinUI 3 app built on PDFium, the
 - The markup bar (Ctrl+Shift+A): freehand drawing, lines, arrows, rectangles, ellipses, text boxes and sticky notes.
 - Line color, fill, line width and text size.
 - Select any object to move, resize or delete it.
+- Comment on highlights, as in Acrobat; see every comment in the comments pane and jump to it.
 
 ### 🖋️ Signatures
 - Draw your signature, type it in a handwriting font, or use a photo of it; the paper becomes transparent.
