@@ -97,14 +97,25 @@
     </StandardDirectory>
 
     <Component Id="OpenWith" Directory="APPLICATIONFOLDER">
-      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document" Type="string" Value="Monoview Document" KeyPath="yes" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot;,0" />
+      <!-- One ProgID per extension, so Explorer shows each its own page icon. The PDF and PNG ones keep the names
+           earlier versions used for them, so a user who made Monoview the default keeps that choice across the upgrade. -->
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document" Type="string" Value="PDF Document" KeyPath="yes" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypePdf.ico&quot;" />
       <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Document\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image" Type="string" Value="PNG Picture" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypePng.ico&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Image\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpg" Type="string" Value="JPG Picture" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpg\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypeJpg.ico&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpg\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpeg" Type="string" Value="JPEG Picture" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpeg\DefaultIcon" Type="string" Value="&quot;[APPLICATIONFOLDER]Assets\FileTypeJpeg.ico&quot;" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\Monoview.Jpeg\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
 
       <RegistryValue Root="HKMU" Key="Software\Classes\.pdf\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
-      <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Document" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Monoview.Image" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Monoview.Jpg" Type="string" Value="" />
+      <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Monoview.Jpeg" Type="string" Value="" />
 
       <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe" Name="FriendlyAppName" Type="string" Value="Monoview" />
       <RegistryValue Root="HKMU" Key="Software\Classes\Applications\Monoview.exe\shell\open\command" Type="string" Value="&quot;[APPLICATIONFOLDER]Monoview.exe&quot; &quot;%1&quot;" />
@@ -117,9 +128,9 @@
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationName" Type="string" Value="Monoview" />
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities" Name="ApplicationDescription" Type="string" Value="A fast, clean PDF viewer and editor." />
       <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".pdf" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Document" />
-      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Document" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".png" Type="string" Value="Monoview.Image" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpg" Type="string" Value="Monoview.Jpg" />
+      <RegistryValue Root="HKMU" Key="Software\Monoview\Capabilities\FileAssociations" Name=".jpeg" Type="string" Value="Monoview.Jpeg" />
       <RegistryValue Root="HKMU" Key="Software\RegisteredApplications" Name="Monoview" Type="string" Value="Software\Monoview\Capabilities" />
     </Component>
 

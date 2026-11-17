@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+<defs><linearGradient id="pg" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#EAF0F8"/></linearGradient></defs>
+<path d="M7.5 1.5 H19.5 L26.5 8.5 V28.5 A2 2 0 0 1 24.5 30.5 H7.5 A2 2 0 0 1 5.5 28.5 V3.5 A2 2 0 0 1 7.5 1.5 Z" fill="url(#pg)" stroke="#7F97B6" stroke-width="1" stroke-linejoin="round"/>
+<path d="M19.5 1.5 V6.5 A2 2 0 0 0 21.5 8.5 H26.5 Z" fill="#D9E5F5" stroke="#7F97B6" stroke-width="1" stroke-linejoin="round"/>
+<clipPath id="l"><circle cx="16" cy="14.5" r="4.2"/></clipPath>
+<g clip-path="url(#l)"><rect x="11.8" y="10.3" width="4.2" height="8.4" fill="#C4D4E6"/><path d="M11.8 18.7 L14 16 L16 17.8 V18.7 Z" fill="#4A78A8"/><rect x="16" y="10.3" width="4.2" height="8.4" fill="#FFFFFF"/><rect x="16.9" y="13.2" width="2.4" height="1" fill="#A9BFD8"/><rect x="16.9" y="15.2" width="1.8" height="1" fill="#A9BFD8"/></g>
+<circle cx="16" cy="14.5" r="5.2" fill="none" stroke="#0B2545" stroke-width="2"/>
+<rect x="9" y="23" width="14" height="5" rx="1.5" fill="#A8500F"/>
+</svg>
